@@ -4,7 +4,7 @@ Static-site generator: MDX in, plain HTML out. The MDX is compiled and executed 
 
 ## Pipeline
 
-`src/cli.js` → `src/index.js` `build()` → `src/paths.js` (resolve logical paths) → `src/compile.js` (MDX evaluate) → `src/tree.js` (assemble + apply defaults) → `src/render.js` (walk template chain) → write to `fs`.
+`src/cli.js` → `src/index.js` `build()` → `src/paths.js` (resolve logical paths) → `src/registry.js` (lazy-compile through a per-build cache) → `src/compile.js` (MDX `compile`+`run`, with `recma-imports.js` rewriting user `import`s into resolver calls) → `src/tree.js` (assemble + apply defaults) → `src/render.js` (walk template chain) → write to `fs`.
 
 Each module is small and focused; read the source rather than relying on this map.
 
@@ -18,6 +18,10 @@ Each module is small and focused; read the source rather than relying on this ma
 - **Frontmatter requires both `remark-frontmatter` AND `remark-mdx-frontmatter`.** The first parses the `---` block; the second turns it into an MDX export. Easy to miss — `compile.js` configures both. Frontmatter keys are then promoted to top-level module properties; named exports win over frontmatter on collisions.
 - **The root never gets a default template.** Other modules walk up; templates themselves don't auto-inherit (they have to declare a template explicitly).
 - **The template chain is bounded** at depth 100 in `render.js` to catch self-referential cycles.
+- **Imports are rewritten by a recma plugin, not real `import()`.** `compile.js` calls `@mdx-js/mdx`'s `compile` directly (not `evaluate`), runs the result via `new AsyncFunction(body)`, and passes a `__immolate_resolve` closure through `arguments[0]`. `recma-imports.js` rewrites every `await import('<spec>')` MDX produced into `await arguments[0].__immolate_resolve('<spec>')`. The dummy `baseUrl: 'file:///immolate/'` is required only to suppress MDX's runtime baseUrl check; it's never actually used because we removed every real `import()`.
+- **`.md`/`.mdx` default-import semantics differ from ESM.** `import X from './foo.mdx'` binds X to the *whole module object*, not `mm.default`. The recma plugin enforces this by splitting the destructure: `const ns = await __immolate_resolve(spec); const X = ns; const {a, b} = ns;` for any `default` key in the pattern. `.js` keeps standard ESM semantics (default = `.default`).
+- **Cycles work via a stable placeholder identity.** `registry.js`'s `loadMdx` sets `mdxModules.set(absPath, {mm: {}, status: 'compiling'})` *before* awaiting source/compile, so a circular re-entry returns the same `mm` object reference. After compile, `Object.assign(mm, compiled)` mutates the placeholder in place — anyone holding the reference sees the final shape by render time.
+- **`.js` files do not go through MDX.** They're loaded via dynamic `import('data:text/javascript;base64,...')`, which means relative imports (`./other.js`, `./other.mdx`) inside `.js` cannot resolve — the data URL has no parent. Bare specifiers (npm, node:) work via Node's normal resolver.
 
 ## JSX shim cheat sheet
 

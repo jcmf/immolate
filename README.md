@@ -75,12 +75,36 @@ Use `for (const child of mm.child_modules) { ... }` to build navigation menus or
 
 Any module can be used as a JSX tag. The runtime calls its `default(props)` and inlines the result.
 
+## Imports
+
+An MDX file can import other `.md`, `.mdx`, and `.js` files. Specs use file paths *with* extensions, either relative to the importing file or absolute-from-`INPUT_DIR` (leading `/`):
+
+```mdx
+import About from './about.mdx';
+import { greet } from './lib/util.js';
+import Card from '/components/card.mdx';
+```
+
+**Default import asymmetry.** `import X from spec`:
+
+- For `.md`/`.mdx`, `X` is the *whole module object* (same shape as a `child_modules` entry). Use `X` as a JSX tag, read frontmatter as `X.title`, etc.
+- For `.js`, `X` is the module's ESM `default` export — standard JS semantics.
+
+Named (`import { a, b } from ...`) and namespace (`import * as X from ...`) imports work for both, with the obvious meaning.
+
+**Cycles are allowed.** Two `.mdx` files can import each other. During compile, an importer may briefly see a partially-initialized module — but by the time anything renders, every module on the cycle is fully populated, so component references resolve correctly.
+
+**`.js` files are evaluated as standalone ESM** via a `data:` URL, so they can use npm packages and Node built-ins normally. They cannot, however, import other immolate-tree files (`.md`, `.mdx`, or relative `.js` paths) — that's a known limitation.
+
+Imports with bare specifiers (`import x from 'react'`), unknown extensions, or paths that escape `INPUT_DIR` are not formally supported and may fail or behave unexpectedly.
+
 ## Limitations
 
 - No client-side runtime, hydration, or watch mode.
 - `style` prop accepts strings only.
 - Components must be synchronous.
 - Path handling assumes POSIX separators.
+- `.js` files cannot import `.md`/`.mdx`/`.js` files in the tree.
 
 ## Tests
 

@@ -158,3 +158,44 @@ test('an unsupported import extension is rejected', async () => {
     build({ inputDir: '/in', outputDir: '/out', fs }),
   );
 });
+
+test('side-effect-only import resolves but binds nothing', async () => {
+  // The .mdx target has no side effects, but importing it should still resolve
+  // (i.e., compile cleanly).
+  const fs = makeFs({
+    '/in/index.mdx': "import './marker.mdx';\n\n# Hi",
+    '/in/marker.mdx': '# m\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<h1>Hi<\/h1>/);
+});
+
+test('two pages importing the same .mdx share one mm (no double compile)', async () => {
+  const fs = makeFs({
+    '/in/index.mdx':
+      "import S from './shared.mdx';\n\n{S.title} from index",
+    '/in/page.mdx':
+      "import S from './shared.mdx';\n\n{S.title} from page",
+    '/in/shared.mdx':
+      '---\ntitle: SHARED\n---\nexport let count = (globalThis.__c = (globalThis.__c ?? 0) + 1);\n\n# S',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  // shared.mdx's top-level export should have run exactly once.
+  assert.equal(globalThis.__c, 1);
+  delete globalThis.__c;
+});
+
+test('a .js helper that returns html objects works as a JSX component', async () => {
+  const fs = makeFs({
+    '/in/index.mdx':
+      "import Box from './box.js';\n\n<Box label=\"hi\" />",
+    '/in/box.js':
+      "export default function Box(props) {\n" +
+      "  return { html: '<span>' + props.label + '</span>' };\n" +
+      "}\n",
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<span>hi<\/span>/);
+});
