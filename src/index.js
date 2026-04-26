@@ -1,7 +1,8 @@
+import path from 'node:path';
 import { resolveLogicalPaths } from './paths.js';
-import { compileSource } from './compile.js';
 import { assembleTree } from './tree.js';
 import { renderModule } from './render.js';
+import { createRegistry } from './registry.js';
 
 const MDX_EXT_RE = /\.mdx?$/;
 
@@ -9,6 +10,7 @@ async function walkMdx(fs, root) {
   const results = [];
   async function recurse(absDir, relDir) {
     const entries = await fs.promises.readdir(absDir, { withFileTypes: true });
+    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     for (const ent of entries) {
       const childAbs = `${absDir}/${ent.name}`;
       const childRel = relDir === '' ? ent.name : `${relDir}/${ent.name}`;
@@ -36,15 +38,18 @@ async function writeNode(mm, segments, outputDir, fs) {
 }
 
 export async function build({ inputDir, outputDir, fs }) {
+  inputDir = path.posix.resolve(inputDir);
   const files = await walkMdx(fs, inputDir);
   const entries = resolveLogicalPaths(files.map((f) => f.relPath));
+  entries.sort((a, b) =>
+    a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0,
+  );
   const absByRel = new Map(files.map((f) => [f.relPath, f.absPath]));
+
+  const registry = createRegistry({ fs, inputDir });
   for (const entry of entries) {
     entry.absPath = absByRel.get(entry.relPath);
-  }
-  for (const entry of entries) {
-    const source = await fs.promises.readFile(entry.absPath, 'utf8');
-    entry.mm = await compileSource(source);
+    entry.mm = await registry.loadMdx(entry.absPath);
   }
   const root = assembleTree(entries);
   await writeNode(root, [], outputDir, fs);
