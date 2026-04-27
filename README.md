@@ -94,7 +94,7 @@ Named (`import { a, b } from ...`) and namespace (`import * as X from ...`) impo
 
 **Cycles are allowed.** Two `.mdx` files can import each other. During compile, an importer may briefly see a partially-initialized module — but by the time anything renders, every module on the cycle is fully populated, so component references resolve correctly.
 
-**`.js` files are evaluated as standalone ESM** via a `data:` URL, so they can use npm packages and Node built-ins normally. They cannot, however, import other immolate-tree files (`.md`, `.mdx`, or relative `.js` paths) — that's a known limitation.
+**`.js` files are evaluated by Node's normal `import()`**, so they can use npm packages, Node built-ins, and relative `.js` imports of their own. They cannot import `.md`/`.mdx` (Node doesn't know how to load those).
 
 Imports with bare specifiers (`import x from 'react'`), unknown extensions, or paths that escape `INPUT_DIR` are not formally supported and may fail or behave unexpectedly.
 
@@ -104,7 +104,7 @@ Imports with bare specifiers (`import x from 'react'`), unknown extensions, or p
 - `style` prop accepts strings only.
 - Components must be synchronous.
 - Path handling assumes POSIX separators.
-- `.js` files cannot import `.md`/`.mdx`/`.js` files in the tree.
+- `.js` files cannot import `.md`/`.mdx` (Node has no loader for those).
 
 ## Tests
 
@@ -112,4 +112,4 @@ Imports with bare specifiers (`import x from 'react'`), unknown extensions, or p
 npm test
 ```
 
-Tests use Node's built-in `node:test` runner with `memfs`; no test touches the real filesystem.
+Tests use Node's built-in `node:test` runner. Most tests inject `memfs` and never touch disk; tests that need `.js` imports (and one no-injection smoke test) write to a `./test-tmp/` scratch directory at the repo root, which is gitignored and wiped at the start of each run.

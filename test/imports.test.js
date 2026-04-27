@@ -83,30 +83,6 @@ test('imports work across nested directories with ../', async () => {
   assert.match(html, /From Parent/);
 });
 
-test('an .mdx module can import a .js helper as a component (default = .default)', async () => {
-  const fs = makeFs({
-    '/in/index.mdx':
-      "import Card from './card.js';\n\n<Card />",
-    '/in/card.js':
-      "export default function Card() { return { html: '<div class=\"c\">hi</div>' }; }\n",
-  });
-  await build({ inputDir: '/in', outputDir: '/out', fs });
-  const html = await fs.promises.readFile('/out/index.html', 'utf8');
-  assert.match(html, /<div class="c">hi<\/div>/);
-});
-
-test('an .mdx module can import named exports from a .js helper', async () => {
-  const fs = makeFs({
-    '/in/index.mdx':
-      "import { greet } from './lib.js';\n\n{greet('world')}",
-    '/in/lib.js':
-      "export function greet(name) { return 'hello ' + name; }\n",
-  });
-  await build({ inputDir: '/in', outputDir: '/out', fs });
-  const html = await fs.promises.readFile('/out/index.html', 'utf8');
-  assert.match(html, /hello world/);
-});
-
 test('circular .mdx imports compile and render correctly', async () => {
   const fs = makeFs({
     '/in/index.mdx':
@@ -186,16 +162,3 @@ test('two pages importing the same .mdx share one mm (no double compile)', async
   delete globalThis.__c;
 });
 
-test('a .js helper that returns html objects works as a JSX component', async () => {
-  const fs = makeFs({
-    '/in/index.mdx':
-      "import Box from './box.js';\n\n<Box label=\"hi\" />",
-    '/in/box.js':
-      "export default function Box(props) {\n" +
-      "  return { html: '<span>' + props.label + '</span>' };\n" +
-      "}\n",
-  });
-  await build({ inputDir: '/in', outputDir: '/out', fs });
-  const html = await fs.promises.readFile('/out/index.html', 'utf8');
-  assert.match(html, /<span>hi<\/span>/);
-});

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { compileSource } from './compile.js';
 
 const MDX_EXT_RE = /\.mdx?$/;
@@ -30,13 +31,7 @@ export function createRegistry({ fs, inputDir }) {
 
   async function loadJs(absPath) {
     if (jsModules.has(absPath)) return jsModules.get(absPath);
-    const pending = (async () => {
-      const source = await fs.promises.readFile(absPath, 'utf8');
-      const dataUrl =
-        'data:text/javascript;base64,' +
-        Buffer.from(source, 'utf8').toString('base64');
-      return await import(dataUrl);
-    })();
+    const pending = import(pathToFileURL(absPath).href);
     jsModules.set(absPath, pending);
     return pending;
   }
