@@ -6,8 +6,23 @@ A small static-site generator: MDX in, plain HTML out. The MDX is compiled and e
 
 ```sh
 npm install
-node src/cli.js INPUT_DIR OUTPUT_DIR
+node src/cli.js [TOP_DIR]
 ```
+
+`TOP_DIR` defaults to the current directory. By default, immolate walks `TOP_DIR/pages/**/*.{md,mdx}` and writes to `TOP_DIR/site/`.
+
+To override the input or output location, add an `immolate` section to `TOP_DIR/package.json`:
+
+```json
+{
+  "immolate": {
+    "inputDir": "src/pages",
+    "outputDir": "dist"
+  }
+}
+```
+
+Relative paths in config are resolved against `TOP_DIR`, not the working directory; absolute paths are used as-is.
 
 ## How input maps to output
 

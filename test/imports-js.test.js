@@ -7,7 +7,7 @@ import { build } from '../src/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
-const testTmp = path.join(repoRoot, 'test-tmp');
+const testTmp = path.join(repoRoot, 'test-tmp', 'imports-js');
 
 before(() => {
   nodeFs.rmSync(testTmp, { recursive: true, force: true });

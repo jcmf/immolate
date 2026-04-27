@@ -31,9 +31,9 @@ Each module is small and focused; read the source rather than relying on this ma
 
 - `npm test` runs the full Node test suite. Three flavors:
   - **memfs tests** (most of them) inject a memfs `fs`; nothing touches disk.
-  - **real-fs tests** (`test/imports-js.test.js`, `test/smoke.test.js`) write inputs and outputs under `./test-tmp/<slug>/`. Each file's top-level `before` wipes its scratch area; `test-tmp/` is gitignored. Slugs must be unique per test in the file — Node caches `import()` by URL, so reusing a slug serves stale `.js` content.
+  - **real-fs tests** (`test/cli.test.js`, `test/imports-js.test.js`, `test/smoke.test.js`) scratch under `./test-tmp/<file>/...`. Each file's top-level `before` wipes only its own subtree (test files run in parallel, so a file-wide wipe of `test-tmp/` will race other files' fixtures). `test-tmp/` is gitignored. Slugs must be unique per test in the file — Node caches `import()` by URL, so reusing a slug serves stale `.js` content.
   - The smoke test passes no fs injection, exercising the default `node:fs` code path end-to-end.
-- **Commit whenever the suite is green.** Don't batch unrelated changes; checkpoint often.
+- **After making a change and seeing the suite green, commit immediately — don't wait to be asked.** Don't batch unrelated changes; checkpoint often.
 - ESM only — `package.json` has `"type": "module"`, all imports use explicit `.js` extensions.
 
 ## Known scope cuts (deliberate)
