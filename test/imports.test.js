@@ -123,7 +123,6 @@ test('a module imported by name and rendered transitively works (cycle through r
       "import B from './b.mdx';\n\n# Index\n\n<B />",
     '/in/b.mdx':
       "import A from './index.mdx';\n\nB-link-to:{A.title}",
-    '/in/template.md': '<wrap>{props.children}</wrap>',
   });
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const home = await fs.promises.readFile('/out/index.html', 'utf8');

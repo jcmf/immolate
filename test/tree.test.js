@@ -32,101 +32,72 @@ test('attaches each child to its parent by last-segment name', () => {
   assert.ok(root.child_modules.a.child_modules.x);
 });
 
-test('iteration over child_modules is sorted by name and skips hidden modules', () => {
+test('child_modules iteration is sorted by name', () => {
   const root = assembleTree([
     entry([]),
     entry(['c']),
     entry(['a']),
-    entry(['b'], { hidden: true }),
+    entry(['b']),
   ]);
   const iterated = [...root.child_modules];
-  assert.equal(iterated.length, 2);
+  assert.equal(iterated.length, 3);
   assert.equal(iterated[0], root.child_modules.a);
-  assert.equal(iterated[1], root.child_modules.c);
+  assert.equal(iterated[1], root.child_modules.b);
+  assert.equal(iterated[2], root.child_modules.c);
 });
 
-test('hidden modules are still accessible as named properties on child_modules', () => {
-  const root = assembleTree([entry([]), entry(['secret'], { hidden: true })]);
-  assert.ok(root.child_modules.secret);
-  assert.equal(root.child_modules.secret.hidden, true);
+test("a module's template defaults to its own default_template", () => {
+  const tpl = { default: () => ({ html: '' }) };
+  const root = assembleTree([entry([], { default_template: tpl })]);
+  assert.equal(root.template, tpl);
 });
 
-test('a module named "template" defaults to hidden=true', () => {
-  const root = assembleTree([entry([]), entry(['template'])]);
-  assert.equal(root.child_modules.template.hidden, true);
-});
-
-test('non-template modules default to hidden=false (including the root)', () => {
-  const root = assembleTree([entry([]), entry(['foo'])]);
-  assert.equal(root.hidden, false);
-  assert.equal(root.child_modules.foo.hidden, false);
-});
-
-test('explicit hidden values override defaults', () => {
+test("a module without a default_template inherits the nearest ancestor's", () => {
+  const rootTpl = { default: () => ({ html: '' }) };
   const root = assembleTree([
-    entry([]),
-    entry(['template'], { hidden: false }),
-    entry(['foo'], { hidden: true }),
+    entry([], { default_template: rootTpl }),
+    entry(['child']),
   ]);
-  assert.equal(root.child_modules.template.hidden, false);
-  assert.equal(root.child_modules.foo.hidden, true);
+  assert.equal(root.child_modules.child.template, rootTpl);
 });
 
-test('siblings inherit their parent\'s child template', () => {
+test("the closest ancestor's default_template wins, with fallback up the chain", () => {
+  const rootTpl = { default: () => ({ html: '' }) };
+  const sectionTpl = { default: () => ({ html: '' }) };
   const root = assembleTree([
-    entry([]),
-    entry(['template']),
-    entry(['foo']),
-  ]);
-  assert.equal(root.child_modules.foo.template, root.child_modules.template);
-});
-
-test('the closest ancestor template wins, with fallback up the chain', () => {
-  const root = assembleTree([
-    entry([]),
-    entry(['template']),
-    entry(['nested']),
-    entry(['nested', 'template']),
-    entry(['nested', 'leaf']),
+    entry([], { default_template: rootTpl }),
+    entry(['section'], { default_template: sectionTpl }),
+    entry(['section', 'leaf']),
     entry(['other']),
     entry(['other', 'leaf']),
   ]);
+  assert.equal(root.template, rootTpl);
+  assert.equal(root.child_modules.section.template, sectionTpl);
   assert.equal(
-    root.child_modules.nested.child_modules.leaf.template,
-    root.child_modules.nested.child_modules.template,
+    root.child_modules.section.child_modules.leaf.template,
+    sectionTpl,
   );
+  assert.equal(root.child_modules.other.template, rootTpl);
   assert.equal(
     root.child_modules.other.child_modules.leaf.template,
-    root.child_modules.template,
+    rootTpl,
   );
 });
 
-test('a template module does not auto-inherit a template', () => {
+test('an explicit template overrides default_template inheritance', () => {
+  const dt = { default: () => ({ html: '' }) };
+  const explicit = { default: () => ({ html: '' }) };
   const root = assembleTree([
-    entry([]),
-    entry(['template']),
-    entry(['nested']),
-    entry(['nested', 'template']),
+    entry([], { default_template: dt }),
+    entry(['foo'], { template: explicit }),
   ]);
-  assert.equal(
-    root.child_modules.nested.child_modules.template.template,
-    undefined,
-  );
+  assert.equal(root.child_modules.foo.template, explicit);
 });
 
-test('the root module never gets a default template', () => {
-  const root = assembleTree([entry([]), entry(['template'])]);
+test('a module with no template and no ancestor default_template ends up with template=undefined', () => {
+  const root = assembleTree([entry([]), entry(['foo'])]);
   assert.equal(root.template, undefined);
-});
-
-test('an explicit template value on a module is preserved', () => {
-  const customTemplate = { default: () => ({ html: '<x></x>' }) };
-  const root = assembleTree([
-    entry([]),
-    entry(['template']),
-    entry(['foo'], { template: customTemplate }),
-  ]);
-  assert.equal(root.child_modules.foo.template, customTemplate);
+  assert.equal(root.child_modules.foo.template, undefined);
 });
 
 test('errors when a non-root module has no parent in the tree', () => {

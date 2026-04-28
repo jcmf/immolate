@@ -1,5 +1,3 @@
-const TEMPLATE_NAME = 'template';
-
 function makeChildModules() {
   const obj = {};
   Object.defineProperty(obj, Symbol.iterator, {
@@ -8,8 +6,7 @@ function makeChildModules() {
     writable: false,
     value: function* () {
       for (const name of Object.keys(this).sort()) {
-        const child = this[name];
-        if (!child.hidden) yield child;
+        yield this[name];
       }
     },
   });
@@ -47,22 +44,11 @@ export function assembleTree(entries) {
   }
 
   for (const entry of entries) {
-    if (entry.mm.hidden !== undefined) continue;
-    const name = entry.segments[entry.segments.length - 1];
-    entry.mm.hidden = name === TEMPLATE_NAME;
-  }
-
-  for (const entry of entries) {
     if (entry.mm.template !== undefined) continue;
-    if (entry.segments.length === 0) continue;
-    const name = entry.segments[entry.segments.length - 1];
-    if (name === TEMPLATE_NAME) continue;
-
-    for (let depth = entry.segments.length - 1; depth >= 0; depth--) {
+    for (let depth = entry.segments.length; depth >= 0; depth--) {
       const ancestor = byKey.get(entry.segments.slice(0, depth).join('/'));
-      const t = ancestor?.mm.child_modules[TEMPLATE_NAME];
-      if (t) {
-        entry.mm.template = t;
+      if (ancestor && ancestor.mm.default_template !== undefined) {
+        entry.mm.template = ancestor.mm.default_template;
         break;
       }
     }

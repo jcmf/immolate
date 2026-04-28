@@ -57,47 +57,33 @@ After compilation, this module exposes `mm.title === 'About'`, `mm.tags === ['ge
 
 ## Templates
 
-A file named `template.md` (or `.mdx`) in directory `D` wraps the **children** of `D` — not `D/index.md` itself. The template receives the wrapped module as `props.children`, so it can read the page's metadata before rendering its content:
+A template wraps another module's content. It's just an MDX module whose `default` render function reads the wrapped module from `props.children`:
 
 ```mdx
-<!-- INPUT_DIR/template.md -->
+<!-- TEMPLATES_DIR/layout.mdx -->
 <html>
   <head><title>{props.children.title}</title></head>
   <body>{props.children}</body>
 </html>
 ```
 
-Inheritance walks up the directory tree: a page first looks in its parent's `template.md`, then in the grandparent's, and so on, until something matches. The root page (`INPUT_DIR/index.md`) never inherits a template by default.
+A module gets a template in one of two ways:
 
-A module named `template` defaults to `hidden: true`, so it isn't written to disk on its own. (See below.)
+1. **Explicit**: set `template: <name>` in frontmatter (or as a named export). The string is treated as a path relative to `TEMPLATES_DIR` (default: `TOP_DIR/templates`, configurable via `immolate.templatesDir` in `package.json`). The `.md`/`.mdx` suffix is optional; with no suffix `.mdx` is preferred. Subpaths work: `template: layouts/post`.
+2. **Inherited via `default_template`**: if `template` isn't set, immolate walks from the module up to the root looking for a `default_template`, and uses the first one it finds. The walk starts at the module itself, so a module's own `default_template` applies to it. Set `default_template` on the root to give every page a default; set it on a subdirectory's `index.md` to override for that subtree.
 
-**Explicit templates by name.** A page can override its template via frontmatter (or a named export):
-
-```mdx
----
-template: blog
----
-
-# Hello
-```
-
-The string is treated as a path relative to `TEMPLATES_DIR` (default: `TOP_DIR/templates`, configurable via `immolate.templatesDir` in `package.json`). The `.md`/`.mdx` suffix is optional; with no suffix `.mdx` is preferred. Subpaths work too: `template: layouts/post`. Templates loaded this way can themselves declare a `template:` string for nesting.
-
-## Hidden pages
-
-Set `hidden: true` in frontmatter (or via `export const hidden = true`) to keep a module out of the output. Hidden modules and their entire subtrees are skipped at write time — but they remain keyed on the parent's `child_modules`, so templates and other pages can still reach them for navigation, listings, etc.
+Templates loaded by name can themselves declare `template:` (or `default_template:`) for nesting. You can also set `template` directly to a module object via `import`, bypassing the templatesDir lookup.
 
 ## The module tree
 
 After compilation, every page is a module object exposing:
 
 - `default(props)` — render function returning `{html: string}`
-- `child_modules` — iterable of non-hidden child modules in name-sorted order; hidden children are still keyed for direct access
-- `template` — the page's template module (auto-inherited or explicitly set)
-- `hidden` — boolean
+- `child_modules` — iterable of child modules in name-sorted order
+- `template` — the page's template module (inherited or explicitly set; may be `undefined`)
 - frontmatter keys + any named exports
 
-Use `for (const child of mm.child_modules) { ... }` to build navigation menus or listings; iteration always skips hidden entries.
+Use `for (const child of mm.child_modules) { ... }` to build navigation menus or listings.
 
 ## Custom components
 

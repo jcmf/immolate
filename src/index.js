@@ -26,7 +26,6 @@ async function walkMdx(fs, root) {
 }
 
 async function writeNode(mm, segments, outputDir, fs) {
-  if (mm.hidden) return;
   const { html } = renderModule(mm);
   const outPath = [outputDir, ...segments, 'index.html'].join('/');
   const dir = outPath.substring(0, outPath.lastIndexOf('/'));
@@ -62,10 +61,10 @@ export async function build({
     entry.absPath = absByRel.get(entry.relPath);
     entry.mm = await registry.loadMdx(entry.absPath);
   }
+  const root = assembleTree(entries);
   for (const entry of entries) {
     await resolveTemplateChain(entry.mm, { fs, templatesDir, registry });
   }
-  const root = assembleTree(entries);
   await writeNode(root, [], outputDir, fs);
 }
 
