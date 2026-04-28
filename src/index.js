@@ -37,8 +37,9 @@ async function writeNode(mm, segments, outputDir, fs) {
   }
 }
 
-export async function build({ inputDir, outputDir, fs }) {
+export async function build({ inputDir, outputDir, topDir, fs }) {
   inputDir = path.posix.resolve(inputDir);
+  topDir = topDir != null ? path.posix.resolve(topDir) : inputDir;
   const files = await walkMdx(fs, inputDir);
   const entries = resolveLogicalPaths(files.map((f) => f.relPath));
   entries.sort((a, b) =>
@@ -46,7 +47,7 @@ export async function build({ inputDir, outputDir, fs }) {
   );
   const absByRel = new Map(files.map((f) => [f.relPath, f.absPath]));
 
-  const registry = createRegistry({ fs, inputDir });
+  const registry = createRegistry({ fs, topDir });
   for (const entry of entries) {
     entry.absPath = absByRel.get(entry.relPath);
     entry.mm = await registry.loadMdx(entry.absPath);

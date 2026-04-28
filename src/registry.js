@@ -13,13 +13,13 @@ export function isJs(absPath) {
   return JS_EXT_RE.test(absPath);
 }
 
-export function createRegistry({ fs, inputDir }) {
+export function createRegistry({ fs, topDir }) {
   const mdxModules = new Map();
   const jsModules = new Map();
 
   function resolveSpec(importerAbsPath, spec) {
     if (spec.startsWith('/')) {
-      return path.posix.join(inputDir, spec);
+      return path.posix.join(topDir, spec);
     }
     if (spec.startsWith('./') || spec.startsWith('../')) {
       return path.posix.resolve(path.posix.dirname(importerAbsPath), spec);

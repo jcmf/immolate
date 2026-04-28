@@ -23,4 +23,4 @@ if (fs.existsSync(pkgPath)) {
 inputDir = path.resolve(topDir, inputDir);
 outputDir = path.resolve(topDir, outputDir);
 
-await build({ inputDir, outputDir, fs });
+await build({ inputDir, outputDir, topDir, fs });

@@ -92,13 +92,15 @@ Any module can be used as a JSX tag. The runtime calls its `default(props)` and 
 
 ## Imports
 
-An MDX file can import other `.md`, `.mdx`, and `.js` files. Specs use file paths *with* extensions, either relative to the importing file or absolute-from-`INPUT_DIR` (leading `/`):
+An MDX file can import other `.md`, `.mdx`, and `.js` files. Specs use file paths *with* extensions, either relative to the importing file or absolute-from-`TOP_DIR` (leading `/`):
 
 ```mdx
 import About from './about.mdx';
 import { greet } from './lib/util.js';
 import Card from '/components/card.mdx';
 ```
+
+Absolute imports are rooted at `TOP_DIR`, not `INPUT_DIR`, so shared components and helpers can live alongside (rather than inside) the pages tree.
 
 **Default import asymmetry.** `import X from spec`:
 

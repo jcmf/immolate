@@ -59,7 +59,7 @@ test('mixed default + named in one statement', async () => {
   assert.match(html, /<h1>A<\/h1>/);
 });
 
-test('imports use absolute paths rooted at inputDir', async () => {
+test('absolute import paths root at topDir, defaulting to inputDir when not given', async () => {
   const fs = makeFs({
     '/in/index.mdx':
       "import About from '/about.mdx';\n\n" +
@@ -69,6 +69,22 @@ test('imports use absolute paths rooted at inputDir', async () => {
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
   assert.match(html, /ABS/);
+});
+
+test('absolute import paths root at topDir, allowing imports from outside inputDir', async () => {
+  const fs = makeFs({
+    '/top/pages/index.mdx':
+      "import Card from '/components/card.mdx';\n\n<Card />",
+    '/top/components/card.mdx': '# Card from outside pages\n',
+  });
+  await build({
+    inputDir: '/top/pages',
+    outputDir: '/out',
+    topDir: '/top',
+    fs,
+  });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<h1>Card from outside pages<\/h1>/);
 });
 
 test('imports work across nested directories with ../', async () => {
