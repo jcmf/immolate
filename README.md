@@ -17,7 +17,8 @@ To override the input or output location, add an `immolate` section to `TOP_DIR/
 {
   "immolate": {
     "inputDir": "src/pages",
-    "outputDir": "dist"
+    "outputDir": "dist",
+    "templatesDir": "src/templates"
   }
 }
 ```
@@ -69,6 +70,18 @@ A file named `template.md` (or `.mdx`) in directory `D` wraps the **children** o
 Inheritance walks up the directory tree: a page first looks in its parent's `template.md`, then in the grandparent's, and so on, until something matches. The root page (`INPUT_DIR/index.md`) never inherits a template by default.
 
 A module named `template` defaults to `hidden: true`, so it isn't written to disk on its own. (See below.)
+
+**Explicit templates by name.** A page can override its template via frontmatter (or a named export):
+
+```mdx
+---
+template: blog
+---
+
+# Hello
+```
+
+The string is treated as a path relative to `TEMPLATES_DIR` (default: `TOP_DIR/templates`, configurable via `immolate.templatesDir` in `package.json`). The `.md`/`.mdx` suffix is optional; with no suffix `.mdx` is preferred. Subpaths work too: `template: layouts/post`. Templates loaded this way can themselves declare a `template:` string for nesting.
 
 ## Hidden pages
 

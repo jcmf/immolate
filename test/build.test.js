@@ -121,6 +121,153 @@ test('templates are inherited transitively across nested directories', async () 
   );
 });
 
+test('a string template in frontmatter resolves against templatesDir (bare name → .mdx)', async () => {
+  const fs = makeFs({
+    '/top/pages/index.md': '---\ntemplate: blog\n---\n# Hi\n',
+    '/top/templates/blog.mdx': '<wrap>{props.children}</wrap>\n',
+  });
+  await build({
+    inputDir: '/top/pages',
+    outputDir: '/out',
+    topDir: '/top',
+    fs,
+  });
+  assert.match(
+    await fs.promises.readFile('/out/index.html', 'utf8'),
+    /<wrap><h1>Hi<\/h1>\s*<\/wrap>/,
+  );
+});
+
+test('a string template can include an explicit .md or .mdx suffix', async () => {
+  const fs = makeFs({
+    '/top/pages/index.md': '# r\n',
+    '/top/pages/a.md': '---\ntemplate: x.md\n---\n# A\n',
+    '/top/pages/b.md': '---\ntemplate: x.mdx\n---\n# B\n',
+    '/top/templates/x.md': '<md>{props.children}</md>\n',
+    '/top/templates/x.mdx': '<mdx>{props.children}</mdx>\n',
+  });
+  await build({
+    inputDir: '/top/pages',
+    outputDir: '/out',
+    topDir: '/top',
+    fs,
+  });
+  assert.match(
+    await fs.promises.readFile('/out/a/index.html', 'utf8'),
+    /<md><h1>A<\/h1>\s*<\/md>/,
+  );
+  assert.match(
+    await fs.promises.readFile('/out/b/index.html', 'utf8'),
+    /<mdx><h1>B<\/h1>\s*<\/mdx>/,
+  );
+});
+
+test('a string template falls back to .md when .mdx is absent', async () => {
+  const fs = makeFs({
+    '/top/pages/index.md': '---\ntemplate: only-md\n---\n# Hi\n',
+    '/top/templates/only-md.md': '<md>{props.children}</md>\n',
+  });
+  await build({
+    inputDir: '/top/pages',
+    outputDir: '/out',
+    topDir: '/top',
+    fs,
+  });
+  assert.match(
+    await fs.promises.readFile('/out/index.html', 'utf8'),
+    /<md><h1>Hi<\/h1>\s*<\/md>/,
+  );
+});
+
+test('when both .md and .mdx exist for a bare-name template, .mdx wins', async () => {
+  const fs = makeFs({
+    '/top/pages/index.md': '---\ntemplate: dup\n---\n# Hi\n',
+    '/top/templates/dup.md': '<md>{props.children}</md>\n',
+    '/top/templates/dup.mdx': '<mdx>{props.children}</mdx>\n',
+  });
+  await build({
+    inputDir: '/top/pages',
+    outputDir: '/out',
+    topDir: '/top',
+    fs,
+  });
+  assert.match(
+    await fs.promises.readFile('/out/index.html', 'utf8'),
+    /<mdx><h1>Hi<\/h1>\s*<\/mdx>/,
+  );
+});
+
+test('a string template can use a subpath under templatesDir', async () => {
+  const fs = makeFs({
+    '/top/pages/index.md': '---\ntemplate: layouts/post\n---\n# Hi\n',
+    '/top/templates/layouts/post.mdx': '<post>{props.children}</post>\n',
+  });
+  await build({
+    inputDir: '/top/pages',
+    outputDir: '/out',
+    topDir: '/top',
+    fs,
+  });
+  assert.match(
+    await fs.promises.readFile('/out/index.html', 'utf8'),
+    /<post><h1>Hi<\/h1>\s*<\/post>/,
+  );
+});
+
+test('a template loaded by name can itself declare a string template (chain)', async () => {
+  const fs = makeFs({
+    '/top/pages/index.md': '---\ntemplate: inner\n---\n# Hi\n',
+    '/top/templates/inner.mdx':
+      '---\ntemplate: outer\n---\n<inner>{props.children}</inner>\n',
+    '/top/templates/outer.mdx': '<outer>{props.children}</outer>\n',
+  });
+  await build({
+    inputDir: '/top/pages',
+    outputDir: '/out',
+    topDir: '/top',
+    fs,
+  });
+  assert.match(
+    await fs.promises.readFile('/out/index.html', 'utf8'),
+    /<outer><inner><h1>Hi<\/h1>\s*<\/inner>\s*<\/outer>/,
+  );
+});
+
+test('a missing string template errors with both candidate paths in the message', async () => {
+  const fs = makeFs({
+    '/top/pages/index.md': '---\ntemplate: missing\n---\n# Hi\n',
+  });
+  await assert.rejects(
+    () =>
+      build({
+        inputDir: '/top/pages',
+        outputDir: '/out',
+        topDir: '/top',
+        fs,
+      }),
+    /Template "missing" not found: tried .*missing\.mdx and .*missing\.md\./,
+  );
+});
+
+test('a string template overrides an auto-inherited filesystem template', async () => {
+  const fs = makeFs({
+    '/top/pages/index.md': '# r\n',
+    '/top/pages/template.md': '<auto>{props.children}</auto>\n',
+    '/top/pages/page.md': '---\ntemplate: custom\n---\n# P\n',
+    '/top/templates/custom.mdx': '<custom>{props.children}</custom>\n',
+  });
+  await build({
+    inputDir: '/top/pages',
+    outputDir: '/out',
+    topDir: '/top',
+    fs,
+  });
+  assert.match(
+    await fs.promises.readFile('/out/page/index.html', 'utf8'),
+    /<custom><h1>P<\/h1>\s*<\/custom>/,
+  );
+});
+
 test('a module\'s template defaults to its parent\'s child_modules.template, not its own', async () => {
   // Per spec: bar.template defaults to foo.child_modules.template (foo is bar's parent),
   // falling back to root.child_modules.template. So section/index.md (parent = root) uses

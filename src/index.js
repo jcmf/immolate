@@ -37,9 +37,19 @@ async function writeNode(mm, segments, outputDir, fs) {
   }
 }
 
-export async function build({ inputDir, outputDir, topDir, fs }) {
+export async function build({
+  inputDir,
+  outputDir,
+  topDir,
+  templatesDir,
+  fs,
+}) {
   inputDir = path.posix.resolve(inputDir);
   topDir = topDir != null ? path.posix.resolve(topDir) : inputDir;
+  templatesDir =
+    templatesDir != null
+      ? path.posix.resolve(templatesDir)
+      : path.posix.join(topDir, 'templates');
   const files = await walkMdx(fs, inputDir);
   const entries = resolveLogicalPaths(files.map((f) => f.relPath));
   entries.sort((a, b) =>
@@ -52,6 +62,35 @@ export async function build({ inputDir, outputDir, topDir, fs }) {
     entry.absPath = absByRel.get(entry.relPath);
     entry.mm = await registry.loadMdx(entry.absPath);
   }
+  for (const entry of entries) {
+    await resolveTemplateChain(entry.mm, { fs, templatesDir, registry });
+  }
   const root = assembleTree(entries);
   await writeNode(root, [], outputDir, fs);
+}
+
+async function resolveTemplateChain(mm, ctx) {
+  if (typeof mm.template !== 'string') return;
+  const tmpl = await loadTemplateByName(mm.template, ctx);
+  mm.template = tmpl;
+  await resolveTemplateChain(tmpl, ctx);
+}
+
+async function loadTemplateByName(name, { fs, templatesDir, registry }) {
+  if (/\.mdx?$/.test(name)) {
+    return registry.loadMdx(path.posix.join(templatesDir, name));
+  }
+  const mdxPath = path.posix.join(templatesDir, `${name}.mdx`);
+  const mdPath = path.posix.join(templatesDir, `${name}.md`);
+  for (const p of [mdxPath, mdPath]) {
+    try {
+      await fs.promises.stat(p);
+      return registry.loadMdx(p);
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw e;
+    }
+  }
+  throw new Error(
+    `Template "${name}" not found: tried ${mdxPath} and ${mdPath}.`,
+  );
 }
