@@ -12,18 +12,18 @@ if (args.length > 1) {
 const topDir = path.resolve(args[0] ?? '.');
 let inputDir = 'pages';
 let outputDir = 'site';
-let templatesDir = 'templates';
+let layoutsDir = 'layouts';
 
 const pkgPath = path.join(topDir, 'package.json');
 if (fs.existsSync(pkgPath)) {
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   if (pkg.immolate?.inputDir) inputDir = pkg.immolate.inputDir;
   if (pkg.immolate?.outputDir) outputDir = pkg.immolate.outputDir;
-  if (pkg.immolate?.templatesDir) templatesDir = pkg.immolate.templatesDir;
+  if (pkg.immolate?.layoutsDir) layoutsDir = pkg.immolate.layoutsDir;
 }
 
 inputDir = path.resolve(topDir, inputDir);
 outputDir = path.resolve(topDir, outputDir);
-templatesDir = path.resolve(topDir, templatesDir);
+layoutsDir = path.resolve(topDir, layoutsDir);
 
-await build({ inputDir, outputDir, topDir, templatesDir, fs });
+await build({ inputDir, outputDir, topDir, layoutsDir, fs });

@@ -34,6 +34,6 @@ test('renders MDX containing JSX through our jsx-runtime', async () => {
 
 test('returns a plain mutable object that can accept added properties', async () => {
   const mm = await compileSource('# Hello\n');
-  mm.child_modules = { foo: 'bar' };
-  assert.equal(mm.child_modules.foo, 'bar');
+  mm.childPages = { foo: 'bar' };
+  assert.equal(mm.childPages.foo, 'bar');
 });

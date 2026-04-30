@@ -1,4 +1,4 @@
-function makeChildModules() {
+function makeChildPages() {
   const obj = {};
   Object.defineProperty(obj, Symbol.iterator, {
     enumerable: false,
@@ -27,7 +27,7 @@ export function assembleTree(entries) {
   }
 
   for (const entry of entries) {
-    entry.mm.child_modules = makeChildModules();
+    entry.mm.childPages = makeChildPages();
   }
 
   for (const entry of entries) {
@@ -40,15 +40,15 @@ export function assembleTree(entries) {
       );
     }
     const name = entry.segments[entry.segments.length - 1];
-    parent.mm.child_modules[name] = entry.mm;
+    parent.mm.childPages[name] = entry.mm;
   }
 
   for (const entry of entries) {
-    if (entry.mm.template !== undefined) continue;
+    if (entry.mm.layout !== undefined) continue;
     for (let depth = entry.segments.length; depth >= 0; depth--) {
       const ancestor = byKey.get(entry.segments.slice(0, depth).join('/'));
-      if (ancestor && ancestor.mm.default_template !== undefined) {
-        entry.mm.template = ancestor.mm.default_template;
+      if (ancestor && ancestor.mm.defaultLayout !== undefined) {
+        entry.mm.layout = ancestor.mm.defaultLayout;
         break;
       }
     }

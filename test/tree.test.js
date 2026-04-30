@@ -14,10 +14,10 @@ test('errors when no root module is provided', () => {
   assert.throws(() => assembleTree([entry(['foo'])]), /No root module found/);
 });
 
-test('returns the root module with empty child_modules for a single-file tree', () => {
+test('returns the root module with empty childPages for a single-file tree', () => {
   const root = assembleTree([entry([])]);
   assert.equal(typeof root.default, 'function');
-  assert.deepEqual([...root.child_modules], []);
+  assert.deepEqual([...root.childPages], []);
 });
 
 test('attaches each child to its parent by last-segment name', () => {
@@ -27,77 +27,77 @@ test('attaches each child to its parent by last-segment name', () => {
     entry(['b']),
     entry(['a', 'x']),
   ]);
-  assert.ok(root.child_modules.a);
-  assert.ok(root.child_modules.b);
-  assert.ok(root.child_modules.a.child_modules.x);
+  assert.ok(root.childPages.a);
+  assert.ok(root.childPages.b);
+  assert.ok(root.childPages.a.childPages.x);
 });
 
-test('child_modules iteration is sorted by name', () => {
+test('childPages iteration is sorted by name', () => {
   const root = assembleTree([
     entry([]),
     entry(['c']),
     entry(['a']),
     entry(['b']),
   ]);
-  const iterated = [...root.child_modules];
+  const iterated = [...root.childPages];
   assert.equal(iterated.length, 3);
-  assert.equal(iterated[0], root.child_modules.a);
-  assert.equal(iterated[1], root.child_modules.b);
-  assert.equal(iterated[2], root.child_modules.c);
+  assert.equal(iterated[0], root.childPages.a);
+  assert.equal(iterated[1], root.childPages.b);
+  assert.equal(iterated[2], root.childPages.c);
 });
 
-test("a module's template defaults to its own default_template", () => {
+test("a module's layout defaults to its own defaultLayout", () => {
   const tpl = { default: () => ({ html: '' }) };
-  const root = assembleTree([entry([], { default_template: tpl })]);
-  assert.equal(root.template, tpl);
+  const root = assembleTree([entry([], { defaultLayout: tpl })]);
+  assert.equal(root.layout, tpl);
 });
 
-test("a module without a default_template inherits the nearest ancestor's", () => {
+test("a module without a defaultLayout inherits the nearest ancestor's", () => {
   const rootTpl = { default: () => ({ html: '' }) };
   const root = assembleTree([
-    entry([], { default_template: rootTpl }),
+    entry([], { defaultLayout: rootTpl }),
     entry(['child']),
   ]);
-  assert.equal(root.child_modules.child.template, rootTpl);
+  assert.equal(root.childPages.child.layout, rootTpl);
 });
 
-test("the closest ancestor's default_template wins, with fallback up the chain", () => {
+test("the closest ancestor's defaultLayout wins, with fallback up the chain", () => {
   const rootTpl = { default: () => ({ html: '' }) };
   const sectionTpl = { default: () => ({ html: '' }) };
   const root = assembleTree([
-    entry([], { default_template: rootTpl }),
-    entry(['section'], { default_template: sectionTpl }),
+    entry([], { defaultLayout: rootTpl }),
+    entry(['section'], { defaultLayout: sectionTpl }),
     entry(['section', 'leaf']),
     entry(['other']),
     entry(['other', 'leaf']),
   ]);
-  assert.equal(root.template, rootTpl);
-  assert.equal(root.child_modules.section.template, sectionTpl);
+  assert.equal(root.layout, rootTpl);
+  assert.equal(root.childPages.section.layout, sectionTpl);
   assert.equal(
-    root.child_modules.section.child_modules.leaf.template,
+    root.childPages.section.childPages.leaf.layout,
     sectionTpl,
   );
-  assert.equal(root.child_modules.other.template, rootTpl);
+  assert.equal(root.childPages.other.layout, rootTpl);
   assert.equal(
-    root.child_modules.other.child_modules.leaf.template,
+    root.childPages.other.childPages.leaf.layout,
     rootTpl,
   );
 });
 
-test('an explicit template overrides default_template inheritance', () => {
+test('an explicit layout overrides defaultLayout inheritance', () => {
   const dt = { default: () => ({ html: '' }) };
   const explicit = { default: () => ({ html: '' }) };
   const root = assembleTree([
-    entry([], { default_template: dt }),
-    entry(['foo'], { template: explicit }),
+    entry([], { defaultLayout: dt }),
+    entry(['foo'], { layout: explicit }),
   ]);
-  assert.equal(root.child_modules.foo.template, explicit);
+  assert.equal(root.childPages.foo.layout, explicit);
 });
 
-test('a module with no template and no ancestor default_template ends up with template=undefined', () => {
+test('a module with no layout and no ancestor defaultLayout ends up with layout=undefined', () => {
   const root = assembleTree([entry([]), entry(['foo'])]);
-  assert.equal(root.template, undefined);
-  assert.equal(root.child_modules.foo.template, undefined);
+  assert.equal(root.layout, undefined);
+  assert.equal(root.childPages.foo.layout, undefined);
 });
 
 test('errors when a non-root module has no parent in the tree', () => {
@@ -107,8 +107,8 @@ test('errors when a non-root module has no parent in the tree', () => {
   );
 });
 
-test('child_modules iterator is non-enumerable, so spread/Object.keys ignore it', () => {
+test('childPages iterator is non-enumerable, so spread/Object.keys ignore it', () => {
   const root = assembleTree([entry([]), entry(['a'])]);
-  assert.deepEqual(Object.keys(root.child_modules), ['a']);
-  assert.deepEqual(Object.keys({ ...root.child_modules }), ['a']);
+  assert.deepEqual(Object.keys(root.childPages), ['a']);
+  assert.deepEqual(Object.keys({ ...root.childPages }), ['a']);
 });

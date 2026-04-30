@@ -3,17 +3,17 @@ import assert from 'node:assert/strict';
 import { renderModule } from '../src/render.js';
 import { jsx } from '../src/jsx-runtime.js';
 
-test('renders a templateless module by invoking its default with no props', () => {
+test('renders a layoutless module by invoking its default with no props', () => {
   const mm = { default: () => ({ html: '<p>hi</p>' }) };
   assert.deepEqual(renderModule(mm), { html: '<p>hi</p>' });
 });
 
-test('a single template wraps the module, receiving it as props.children', () => {
+test('a single layout wraps the module, receiving it as props.children', () => {
   const leaf = {
     title: 'L',
     default: () => jsx('p', { children: 'leaf-body' }),
   };
-  leaf.template = {
+  leaf.layout = {
     default: (props) => jsx('html', {
       children: [
         jsx('head', { children: jsx('title', { children: props.children.title }) }),
@@ -27,7 +27,7 @@ test('a single template wraps the module, receiving it as props.children', () =>
   );
 });
 
-test('a template-of-template wraps the chain, the outer template seeing the inner template\'s metadata', () => {
+test('a layout-of-layout wraps the chain, the outer layout seeing the inner layout\'s metadata', () => {
   const leaf = { default: () => jsx('p', { children: 'L' }) };
   const inner = {
     label: 'inner',
@@ -41,8 +41,8 @@ test('a template-of-template wraps the chain, the outer template seeing the inne
       ],
     }),
   };
-  leaf.template = inner;
-  inner.template = outer;
+  leaf.layout = inner;
+  inner.layout = outer;
   assert.deepEqual(
     renderModule(leaf),
     { html: '<html><head>inner</head><body><main><p>L</p></main></body></html>' },
@@ -58,16 +58,16 @@ test('does not mutate the original module objects', () => {
     name: 'T',
     default: (props) => jsx('section', { children: props.children }),
   };
-  leaf.template = tpl;
+  leaf.layout = tpl;
   const before = { ...leaf };
   renderModule(leaf);
   assert.deepEqual({ ...leaf }, before);
 });
 
-test('detects template cycles', () => {
+test('detects layout cycles', () => {
   const a = { default: (props) => jsx('a', { children: props.children }) };
   const b = { default: (props) => jsx('b', { children: props.children }) };
-  a.template = b;
-  b.template = a;
-  assert.throws(() => renderModule(a), /Template chain exceeded depth/);
+  a.layout = b;
+  b.layout = a;
+  assert.throws(() => renderModule(a), /Layout chain exceeded depth/);
 });

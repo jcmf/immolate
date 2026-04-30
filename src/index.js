@@ -31,8 +31,8 @@ async function writeNode(mm, segments, outputDir, fs) {
   const dir = outPath.substring(0, outPath.lastIndexOf('/'));
   await fs.promises.mkdir(dir, { recursive: true });
   await fs.promises.writeFile(outPath, html);
-  for (const name of Object.keys(mm.child_modules).sort()) {
-    await writeNode(mm.child_modules[name], [...segments, name], outputDir, fs);
+  for (const name of Object.keys(mm.childPages).sort()) {
+    await writeNode(mm.childPages[name], [...segments, name], outputDir, fs);
   }
 }
 
@@ -40,15 +40,15 @@ export async function build({
   inputDir,
   outputDir,
   topDir,
-  templatesDir,
+  layoutsDir,
   fs,
 }) {
   inputDir = path.posix.resolve(inputDir);
   topDir = topDir != null ? path.posix.resolve(topDir) : inputDir;
-  templatesDir =
-    templatesDir != null
-      ? path.posix.resolve(templatesDir)
-      : path.posix.join(topDir, 'templates');
+  layoutsDir =
+    layoutsDir != null
+      ? path.posix.resolve(layoutsDir)
+      : path.posix.join(topDir, 'layouts');
   const files = await walkMdx(fs, inputDir);
   const entries = resolveLogicalPaths(files.map((f) => f.relPath));
   entries.sort((a, b) =>
@@ -63,24 +63,24 @@ export async function build({
   }
   const root = assembleTree(entries);
   for (const entry of entries) {
-    await resolveTemplateChain(entry.mm, { fs, templatesDir, registry });
+    await resolveLayoutChain(entry.mm, { fs, layoutsDir, registry });
   }
   await writeNode(root, [], outputDir, fs);
 }
 
-async function resolveTemplateChain(mm, ctx) {
-  if (typeof mm.template !== 'string') return;
-  const tmpl = await loadTemplateByName(mm.template, ctx);
-  mm.template = tmpl;
-  await resolveTemplateChain(tmpl, ctx);
+async function resolveLayoutChain(mm, ctx) {
+  if (typeof mm.layout !== 'string') return;
+  const tmpl = await loadLayoutByName(mm.layout, ctx);
+  mm.layout = tmpl;
+  await resolveLayoutChain(tmpl, ctx);
 }
 
-async function loadTemplateByName(name, { fs, templatesDir, registry }) {
+async function loadLayoutByName(name, { fs, layoutsDir, registry }) {
   if (/\.mdx?$/.test(name)) {
-    return registry.loadMdx(path.posix.join(templatesDir, name));
+    return registry.loadMdx(path.posix.join(layoutsDir, name));
   }
-  const mdxPath = path.posix.join(templatesDir, `${name}.mdx`);
-  const mdPath = path.posix.join(templatesDir, `${name}.md`);
+  const mdxPath = path.posix.join(layoutsDir, `${name}.mdx`);
+  const mdPath = path.posix.join(layoutsDir, `${name}.md`);
   for (const p of [mdxPath, mdPath]) {
     try {
       await fs.promises.stat(p);
@@ -90,6 +90,6 @@ async function loadTemplateByName(name, { fs, templatesDir, registry }) {
     }
   }
   throw new Error(
-    `Template "${name}" not found: tried ${mdxPath} and ${mdPath}.`,
+    `Layout "${name}" not found: tried ${mdxPath} and ${mdPath}.`,
   );
 }

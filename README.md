@@ -18,7 +18,7 @@ To override the input or output location, add an `immolate` section to `TOP_DIR/
   "immolate": {
     "inputDir": "src/pages",
     "outputDir": "dist",
-    "templatesDir": "src/templates"
+    "layoutsDir": "src/layouts"
   }
 }
 ```
@@ -55,35 +55,35 @@ export const tags = ['general'];
 
 After compilation, this module exposes `mm.title === 'About'`, `mm.tags === ['general']`, and a default render function.
 
-## Templates
+## Layouts
 
-A template wraps another module's content. It's just an MDX module whose `default` render function reads the wrapped module from `props.children`:
+A layout wraps another module's content. It's just an MDX module whose `default` render function reads the wrapped module from `props.children`:
 
 ```mdx
-<!-- TEMPLATES_DIR/layout.mdx -->
+<!-- LAYOUTS_DIR/main.mdx -->
 <html>
   <head><title>{props.children.title}</title></head>
   <body>{props.children}</body>
 </html>
 ```
 
-A module gets a template in one of two ways:
+A module gets a layout in one of two ways:
 
-1. **Explicit**: set `template: <name>` in frontmatter (or as a named export). The string is treated as a path relative to `TEMPLATES_DIR` (default: `TOP_DIR/templates`, configurable via `immolate.templatesDir` in `package.json`). The `.md`/`.mdx` suffix is optional; with no suffix `.mdx` is preferred. Subpaths work: `template: layouts/post`.
-2. **Inherited via `default_template`**: if `template` isn't set, immolate walks from the module up to the root looking for a `default_template`, and uses the first one it finds. The walk starts at the module itself, so a module's own `default_template` applies to it. Set `default_template` on the root to give every page a default; set it on a subdirectory's `index.md` to override for that subtree.
+1. **Explicit**: set `layout: <name>` in frontmatter (or as a named export). The string is treated as a path relative to `LAYOUTS_DIR` (default: `TOP_DIR/layouts`, configurable via `immolate.layoutsDir` in `package.json`). The `.md`/`.mdx` suffix is optional; with no suffix `.mdx` is preferred. Subpaths work: `layout: posts/article`.
+2. **Inherited via `defaultLayout`**: if `layout` isn't set, immolate walks from the module up to the root looking for a `defaultLayout`, and uses the first one it finds. The walk starts at the module itself, so a module's own `defaultLayout` applies to it. Set `defaultLayout` on the root to give every page a default; set it on a subdirectory's `index.md` to override for that subtree.
 
-Templates loaded by name can themselves declare `template:` (or `default_template:`) for nesting. You can also set `template` directly to a module object via `import`, bypassing the templatesDir lookup.
+Layouts loaded by name can themselves declare `layout:` (or `defaultLayout:`) for nesting. You can also set `layout` directly to a module object via `import`, bypassing the layoutsDir lookup.
 
 ## The module tree
 
 After compilation, every page is a module object exposing:
 
 - `default(props)` — render function returning `{html: string}`
-- `child_modules` — iterable of child modules in name-sorted order
-- `template` — the page's template module (inherited or explicitly set; may be `undefined`)
+- `childPages` — iterable of child modules in name-sorted order
+- `layout` — the page's layout module (inherited or explicitly set; may be `undefined`)
 - frontmatter keys + any named exports
 
-Use `for (const child of mm.child_modules) { ... }` to build navigation menus or listings.
+Use `for (const child of mm.childPages) { ... }` to build navigation menus or listings.
 
 ## Custom components
 
@@ -103,7 +103,7 @@ Absolute imports are rooted at `TOP_DIR`, not `INPUT_DIR`, so shared components 
 
 **Default import asymmetry.** `import X from spec`:
 
-- For `.md`/`.mdx`, `X` is the *whole module object* (same shape as a `child_modules` entry). Use `X` as a JSX tag, read frontmatter as `X.title`, etc.
+- For `.md`/`.mdx`, `X` is the *whole module object* (same shape as a `childPages` entry). Use `X` as a JSX tag, read frontmatter as `X.title`, etc.
 - For `.js`, `X` is the module's ESM `default` export — standard JS semantics.
 
 Named (`import { a, b } from ...`) and namespace (`import * as X from ...`) imports work for both, with the obvious meaning.

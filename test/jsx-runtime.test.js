@@ -128,14 +128,14 @@ test('handles deep nesting', () => {
   });
 });
 
-// Templates per spec: invoked with the wrapped module as `children`,
-// so the template can read metadata off the module before rendering it.
-test('a template-style module receives the wrapped module as children and can read its metadata', () => {
+// Layouts per spec: invoked with the wrapped module as `children`,
+// so the layout can read metadata off the module before rendering it.
+test('a layout-style module receives the wrapped module as children and can read its metadata', () => {
   const leaf = {
     title: 'Hello',
     default: () => jsx('p', { children: 'body' }),
   };
-  const Template = {
+  const Layout = {
     default: (props) => jsx('html', {
       children: [
         jsx('head', { children: jsx('title', { children: props.children.title }) }),
@@ -144,7 +144,7 @@ test('a template-style module receives the wrapped module as children and can re
     }),
   };
   assert.deepEqual(
-    jsx(Template, { children: leaf }),
+    jsx(Layout, { children: leaf }),
     { html: '<html><head><title>Hello</title></head><body><p>body</p></body></html>' },
   );
 });

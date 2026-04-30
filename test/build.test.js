@@ -48,14 +48,14 @@ test('errors on collision between two equivalent forms', async () => {
   );
 });
 
-test('default_template on the root applies to the root and all descendants', async () => {
+test('defaultLayout on the root applies to the root and all descendants', async () => {
   const fs = makeFs({
     '/top/pages/index.md':
-      '---\ntitle: Home\ndefault_template: layout\n---\n# Home\n',
+      '---\ntitle: Home\ndefaultLayout: layout\n---\n# Home\n',
     '/top/pages/about.md': '---\ntitle: About\n---\n# About me\n',
     '/top/pages/blog/index.md': '---\ntitle: Blog\n---\n# Blog\n',
     '/top/pages/blog/post.md': '---\ntitle: Post\n---\n# Post\n',
-    '/top/templates/layout.mdx':
+    '/top/layouts/layout.mdx':
       '<html>\n' +
       '<head><title>{props.children.title}</title></head>\n' +
       '<body>{props.children}</body>\n' +
@@ -79,16 +79,16 @@ test('default_template on the root applies to the root and all descendants', asy
   }
 });
 
-test('a subtree index can set its own default_template that wins for its descendants', async () => {
+test('a subtree index can set its own defaultLayout that wins for its descendants', async () => {
   const fs = makeFs({
-    '/top/pages/index.md': '---\ndefault_template: outer\n---\n# r\n',
+    '/top/pages/index.md': '---\ndefaultLayout: outer\n---\n# r\n',
     '/top/pages/section/index.md':
-      '---\ndefault_template: inner\n---\n# S\n',
+      '---\ndefaultLayout: inner\n---\n# S\n',
     '/top/pages/section/page.md': '# P\n',
     '/top/pages/other/index.md': '# O-section\n',
     '/top/pages/other/page.md': '# O\n',
-    '/top/templates/outer.mdx': '<outer>{props.children}</outer>\n',
-    '/top/templates/inner.mdx': '<inner>{props.children}</inner>\n',
+    '/top/layouts/outer.mdx': '<outer>{props.children}</outer>\n',
+    '/top/layouts/inner.mdx': '<inner>{props.children}</inner>\n',
   });
   await build({
     inputDir: '/top/pages',
@@ -115,10 +115,10 @@ test('a subtree index can set its own default_template that wins for its descend
   );
 });
 
-test('a string template in frontmatter resolves against templatesDir (bare name → .mdx)', async () => {
+test('a string layout in frontmatter resolves against layoutsDir (bare name → .mdx)', async () => {
   const fs = makeFs({
-    '/top/pages/index.md': '---\ntemplate: blog\n---\n# Hi\n',
-    '/top/templates/blog.mdx': '<wrap>{props.children}</wrap>\n',
+    '/top/pages/index.md': '---\nlayout: blog\n---\n# Hi\n',
+    '/top/layouts/blog.mdx': '<wrap>{props.children}</wrap>\n',
   });
   await build({
     inputDir: '/top/pages',
@@ -132,13 +132,13 @@ test('a string template in frontmatter resolves against templatesDir (bare name 
   );
 });
 
-test('a string template can include an explicit .md or .mdx suffix', async () => {
+test('a string layout can include an explicit .md or .mdx suffix', async () => {
   const fs = makeFs({
     '/top/pages/index.md': '# r\n',
-    '/top/pages/a.md': '---\ntemplate: x.md\n---\n# A\n',
-    '/top/pages/b.md': '---\ntemplate: x.mdx\n---\n# B\n',
-    '/top/templates/x.md': '<md>{props.children}</md>\n',
-    '/top/templates/x.mdx': '<mdx>{props.children}</mdx>\n',
+    '/top/pages/a.md': '---\nlayout: x.md\n---\n# A\n',
+    '/top/pages/b.md': '---\nlayout: x.mdx\n---\n# B\n',
+    '/top/layouts/x.md': '<md>{props.children}</md>\n',
+    '/top/layouts/x.mdx': '<mdx>{props.children}</mdx>\n',
   });
   await build({
     inputDir: '/top/pages',
@@ -156,10 +156,10 @@ test('a string template can include an explicit .md or .mdx suffix', async () =>
   );
 });
 
-test('a string template falls back to .md when .mdx is absent', async () => {
+test('a string layout falls back to .md when .mdx is absent', async () => {
   const fs = makeFs({
-    '/top/pages/index.md': '---\ntemplate: only-md\n---\n# Hi\n',
-    '/top/templates/only-md.md': '<md>{props.children}</md>\n',
+    '/top/pages/index.md': '---\nlayout: only-md\n---\n# Hi\n',
+    '/top/layouts/only-md.md': '<md>{props.children}</md>\n',
   });
   await build({
     inputDir: '/top/pages',
@@ -173,11 +173,11 @@ test('a string template falls back to .md when .mdx is absent', async () => {
   );
 });
 
-test('when both .md and .mdx exist for a bare-name template, .mdx wins', async () => {
+test('when both .md and .mdx exist for a bare-name layout, .mdx wins', async () => {
   const fs = makeFs({
-    '/top/pages/index.md': '---\ntemplate: dup\n---\n# Hi\n',
-    '/top/templates/dup.md': '<md>{props.children}</md>\n',
-    '/top/templates/dup.mdx': '<mdx>{props.children}</mdx>\n',
+    '/top/pages/index.md': '---\nlayout: dup\n---\n# Hi\n',
+    '/top/layouts/dup.md': '<md>{props.children}</md>\n',
+    '/top/layouts/dup.mdx': '<mdx>{props.children}</mdx>\n',
   });
   await build({
     inputDir: '/top/pages',
@@ -191,10 +191,10 @@ test('when both .md and .mdx exist for a bare-name template, .mdx wins', async (
   );
 });
 
-test('a string template can use a subpath under templatesDir', async () => {
+test('a string layout can use a subpath under layoutsDir', async () => {
   const fs = makeFs({
-    '/top/pages/index.md': '---\ntemplate: layouts/post\n---\n# Hi\n',
-    '/top/templates/layouts/post.mdx': '<post>{props.children}</post>\n',
+    '/top/pages/index.md': '---\nlayout: posts/article\n---\n# Hi\n',
+    '/top/layouts/posts/article.mdx': '<post>{props.children}</post>\n',
   });
   await build({
     inputDir: '/top/pages',
@@ -208,12 +208,12 @@ test('a string template can use a subpath under templatesDir', async () => {
   );
 });
 
-test('a template loaded by name can itself declare a string template (chain)', async () => {
+test('a layout loaded by name can itself declare a string layout (chain)', async () => {
   const fs = makeFs({
-    '/top/pages/index.md': '---\ntemplate: inner\n---\n# Hi\n',
-    '/top/templates/inner.mdx':
-      '---\ntemplate: outer\n---\n<inner>{props.children}</inner>\n',
-    '/top/templates/outer.mdx': '<outer>{props.children}</outer>\n',
+    '/top/pages/index.md': '---\nlayout: inner\n---\n# Hi\n',
+    '/top/layouts/inner.mdx':
+      '---\nlayout: outer\n---\n<inner>{props.children}</inner>\n',
+    '/top/layouts/outer.mdx': '<outer>{props.children}</outer>\n',
   });
   await build({
     inputDir: '/top/pages',
@@ -227,9 +227,9 @@ test('a template loaded by name can itself declare a string template (chain)', a
   );
 });
 
-test('a missing string template errors with both candidate paths in the message', async () => {
+test('a missing string layout errors with both candidate paths in the message', async () => {
   const fs = makeFs({
-    '/top/pages/index.md': '---\ntemplate: missing\n---\n# Hi\n',
+    '/top/pages/index.md': '---\nlayout: missing\n---\n# Hi\n',
   });
   await assert.rejects(
     () =>
@@ -239,16 +239,16 @@ test('a missing string template errors with both candidate paths in the message'
         topDir: '/top',
         fs,
       }),
-    /Template "missing" not found: tried .*missing\.mdx and .*missing\.md\./,
+    /Layout "missing" not found: tried .*missing\.mdx and .*missing\.md\./,
   );
 });
 
-test('an explicit string template overrides default_template inherited from an ancestor', async () => {
+test('an explicit string layout overrides defaultLayout inherited from an ancestor', async () => {
   const fs = makeFs({
-    '/top/pages/index.md': '---\ndefault_template: auto\n---\n# r\n',
-    '/top/pages/page.md': '---\ntemplate: custom\n---\n# P\n',
-    '/top/templates/auto.mdx': '<auto>{props.children}</auto>\n',
-    '/top/templates/custom.mdx': '<custom>{props.children}</custom>\n',
+    '/top/pages/index.md': '---\ndefaultLayout: auto\n---\n# r\n',
+    '/top/pages/page.md': '---\nlayout: custom\n---\n# P\n',
+    '/top/layouts/auto.mdx': '<auto>{props.children}</auto>\n',
+    '/top/layouts/custom.mdx': '<custom>{props.children}</custom>\n',
   });
   await build({
     inputDir: '/top/pages',
