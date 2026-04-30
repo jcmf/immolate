@@ -63,7 +63,7 @@ title: Index
 ---
 # {title}
 
-<ul>{[...childPages].map((c) => <li>{c.title}</li>)}</ul>
+<ul>{childPages.map((c) => <li>{c.title}</li>)}</ul>
 ```
 
 Identifiers shadowed by parameters or local declarations resolve normally; it's only otherwise-unbound identifiers that fall through to the module object.
@@ -92,11 +92,12 @@ Layouts loaded by name can themselves declare `layout:` (or `defaultLayout:`) fo
 After compilation, every page is a module object exposing:
 
 - `default(props)` — render function returning `{html: string}`
-- `childPages` — iterable of child modules in name-sorted order
+- `childPages` — `Array` of child modules sorted by `name`
 - `layout` — the page's layout module (inherited or explicitly set; may be `undefined`)
+- `name` — the module's last path segment (set on every module that's a child of another; the root has no `name`)
 - frontmatter keys + any named exports
 
-Use `for (const child of mm.childPages) { ... }` to build navigation menus or listings.
+`childPages` is a plain JavaScript array, so `mm.childPages.map(...)`, `.find(...)`, `.length`, and `for (const child of mm.childPages) { ... }` all work directly.
 
 ## Custom components
 

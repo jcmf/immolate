@@ -1,18 +1,3 @@
-function makeChildPages() {
-  const obj = {};
-  Object.defineProperty(obj, Symbol.iterator, {
-    enumerable: false,
-    configurable: false,
-    writable: false,
-    value: function* () {
-      for (const name of Object.keys(this).sort()) {
-        yield this[name];
-      }
-    },
-  });
-  return obj;
-}
-
 export function assembleTree(entries) {
   const byKey = new Map();
   let root = null;
@@ -27,7 +12,7 @@ export function assembleTree(entries) {
   }
 
   for (const entry of entries) {
-    entry.mm.childPages = makeChildPages();
+    entry.mm.childPages = [];
   }
 
   for (const entry of entries) {
@@ -39,8 +24,14 @@ export function assembleTree(entries) {
         `Module "${entry.segments.join('/')}" has no parent module at "${parentKey || '(root)'}".`,
       );
     }
-    const name = entry.segments[entry.segments.length - 1];
-    parent.mm.childPages[name] = entry.mm;
+    entry.mm.name = entry.segments[entry.segments.length - 1];
+    parent.mm.childPages.push(entry.mm);
+  }
+
+  for (const entry of entries) {
+    entry.mm.childPages.sort((a, b) =>
+      a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+    );
   }
 
   for (const entry of entries) {

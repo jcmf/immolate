@@ -276,7 +276,7 @@ test('a JSX expression resolves bare identifiers against the module itself (fron
 test('a page can iterate over childPages via a bare identifier', async () => {
   const fs = makeFs({
     '/in/index.mdx':
-      '<ul>{[...childPages].map((c) => <li>{c.title}</li>)}</ul>\n',
+      '<ul>{childPages.map((c) => <li>{c.title}</li>)}</ul>\n',
     '/in/a.md': '---\ntitle: Alpha\n---\nA\n',
     '/in/b.md': '---\ntitle: Beta\n---\nB\n',
   });

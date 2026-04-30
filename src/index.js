@@ -31,8 +31,8 @@ async function writeNode(mm, segments, outputDir, fs) {
   const dir = outPath.substring(0, outPath.lastIndexOf('/'));
   await fs.promises.mkdir(dir, { recursive: true });
   await fs.promises.writeFile(outPath, html);
-  for (const name of Object.keys(mm.childPages).sort()) {
-    await writeNode(mm.childPages[name], [...segments, name], outputDir, fs);
+  for (const child of mm.childPages) {
+    await writeNode(child, [...segments, child.name], outputDir, fs);
   }
 }
 

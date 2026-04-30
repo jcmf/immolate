@@ -10,6 +10,10 @@ function entry(segments, props = {}) {
   };
 }
 
+function child(parent, name) {
+  return parent.childPages.find((c) => c.name === name);
+}
+
 test('errors when no root module is provided', () => {
   assert.throws(() => assembleTree([entry(['foo'])]), /No root module found/);
 });
@@ -17,33 +21,37 @@ test('errors when no root module is provided', () => {
 test('returns the root module with empty childPages for a single-file tree', () => {
   const root = assembleTree([entry([])]);
   assert.equal(typeof root.default, 'function');
-  assert.deepEqual([...root.childPages], []);
+  assert.deepEqual(root.childPages, []);
 });
 
-test('attaches each child to its parent by last-segment name', () => {
+test('attaches each child to its parent and tags it with its last-segment name', () => {
   const root = assembleTree([
     entry([]),
     entry(['a']),
     entry(['b']),
     entry(['a', 'x']),
   ]);
-  assert.ok(root.childPages.a);
-  assert.ok(root.childPages.b);
-  assert.ok(root.childPages.a.childPages.x);
+  assert.deepEqual(
+    root.childPages.map((c) => c.name),
+    ['a', 'b'],
+  );
+  assert.deepEqual(
+    child(root, 'a').childPages.map((c) => c.name),
+    ['x'],
+  );
 });
 
-test('childPages iteration is sorted by name', () => {
+test('childPages is sorted by name regardless of input order', () => {
   const root = assembleTree([
     entry([]),
     entry(['c']),
     entry(['a']),
     entry(['b']),
   ]);
-  const iterated = [...root.childPages];
-  assert.equal(iterated.length, 3);
-  assert.equal(iterated[0], root.childPages.a);
-  assert.equal(iterated[1], root.childPages.b);
-  assert.equal(iterated[2], root.childPages.c);
+  assert.deepEqual(
+    root.childPages.map((c) => c.name),
+    ['a', 'b', 'c'],
+  );
 });
 
 test("a module's layout defaults to its own defaultLayout", () => {
@@ -58,7 +66,7 @@ test("a module without a defaultLayout inherits the nearest ancestor's", () => {
     entry([], { defaultLayout: rootTpl }),
     entry(['child']),
   ]);
-  assert.equal(root.childPages.child.layout, rootTpl);
+  assert.equal(child(root, 'child').layout, rootTpl);
 });
 
 test("the closest ancestor's defaultLayout wins, with fallback up the chain", () => {
@@ -72,16 +80,12 @@ test("the closest ancestor's defaultLayout wins, with fallback up the chain", ()
     entry(['other', 'leaf']),
   ]);
   assert.equal(root.layout, rootTpl);
-  assert.equal(root.childPages.section.layout, sectionTpl);
-  assert.equal(
-    root.childPages.section.childPages.leaf.layout,
-    sectionTpl,
-  );
-  assert.equal(root.childPages.other.layout, rootTpl);
-  assert.equal(
-    root.childPages.other.childPages.leaf.layout,
-    rootTpl,
-  );
+  const section = child(root, 'section');
+  const other = child(root, 'other');
+  assert.equal(section.layout, sectionTpl);
+  assert.equal(child(section, 'leaf').layout, sectionTpl);
+  assert.equal(other.layout, rootTpl);
+  assert.equal(child(other, 'leaf').layout, rootTpl);
 });
 
 test('an explicit layout overrides defaultLayout inheritance', () => {
@@ -91,13 +95,13 @@ test('an explicit layout overrides defaultLayout inheritance', () => {
     entry([], { defaultLayout: dt }),
     entry(['foo'], { layout: explicit }),
   ]);
-  assert.equal(root.childPages.foo.layout, explicit);
+  assert.equal(child(root, 'foo').layout, explicit);
 });
 
 test('a module with no layout and no ancestor defaultLayout ends up with layout=undefined', () => {
   const root = assembleTree([entry([]), entry(['foo'])]);
   assert.equal(root.layout, undefined);
-  assert.equal(root.childPages.foo.layout, undefined);
+  assert.equal(child(root, 'foo').layout, undefined);
 });
 
 test('errors when a non-root module has no parent in the tree', () => {
@@ -107,8 +111,15 @@ test('errors when a non-root module has no parent in the tree', () => {
   );
 });
 
-test('childPages iterator is non-enumerable, so spread/Object.keys ignore it', () => {
+test('childPages is a real Array (supports .map, .find, .length, etc.)', () => {
+  const root = assembleTree([entry([]), entry(['a']), entry(['b'])]);
+  assert.equal(Array.isArray(root.childPages), true);
+  assert.equal(root.childPages.length, 2);
+  assert.deepEqual(root.childPages.map((c) => c.name), ['a', 'b']);
+});
+
+test('the root has no name set; only attached children do', () => {
   const root = assembleTree([entry([]), entry(['a'])]);
-  assert.deepEqual(Object.keys(root.childPages), ['a']);
-  assert.deepEqual(Object.keys({ ...root.childPages }), ['a']);
+  assert.equal(root.name, undefined);
+  assert.equal(child(root, 'a').name, 'a');
 });
