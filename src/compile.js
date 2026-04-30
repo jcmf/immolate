@@ -3,6 +3,7 @@ import remarkFrontmatter from 'remark-frontmatter';
 import remarkMdxFrontmatter from 'remark-mdx-frontmatter';
 import * as runtime from './jsx-runtime.js';
 import { recmaImports } from './recma-imports.js';
+import { recmaSelf } from './recma-self.js';
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
@@ -16,7 +17,7 @@ export async function compileSource(source, options = {}) {
   const resolve = options.resolve ?? defaultResolve;
   const compiled = await compile(source, {
     remarkPlugins: [remarkFrontmatter, remarkMdxFrontmatter],
-    recmaPlugins: [recmaImports],
+    recmaPlugins: [recmaImports, recmaSelf],
     outputFormat: 'function-body',
     baseUrl: 'file:///immolate/',
   });

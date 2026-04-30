@@ -261,3 +261,70 @@ test('an explicit string layout overrides defaultLayout inherited from an ancest
     /<custom><h1>P<\/h1>\s*<\/custom>/,
   );
 });
+
+test('a JSX expression resolves bare identifiers against the module itself (frontmatter)', async () => {
+  const fs = makeFs({
+    '/in/index.md': '---\ntitle: Hello\n---\n# {title}\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  assert.match(
+    await fs.promises.readFile('/out/index.html', 'utf8'),
+    /<h1>Hello<\/h1>/,
+  );
+});
+
+test('a page can iterate over childPages via a bare identifier', async () => {
+  const fs = makeFs({
+    '/in/index.mdx':
+      '<ul>{[...childPages].map((c) => <li>{c.title}</li>)}</ul>\n',
+    '/in/a.md': '---\ntitle: Alpha\n---\nA\n',
+    '/in/b.md': '---\ntitle: Beta\n---\nB\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<ul><li>Alpha<\/li><li>Beta<\/li><\/ul>/);
+});
+
+test('an arrow parameter shadows would-be self lookups', async () => {
+  // The arrow's param `title` shadows the module's `title` frontmatter field
+  // — proving param scoping is respected (we are not just blindly destructuring).
+  const fs = makeFs({
+    '/in/index.mdx':
+      '---\ntitle: Outer\n---\n' +
+      '<p>{[\'A\',\'B\'].map((title) => title).join(\',\')}</p>\n' +
+      '<h2>{title}</h2>\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<p>A,B<\/p>/);
+  assert.match(html, /<h2>Outer<\/h2>/);
+});
+
+test('a layout sees its own frontmatter via bare identifiers', async () => {
+  const fs = makeFs({
+    '/top/pages/index.md': '---\nlayout: main\n---\n# Body\n',
+    '/top/layouts/main.mdx':
+      '---\nsiteName: My Site\n---\n' +
+      '<html><head><title>{siteName}</title></head><body>{props.children}</body></html>\n',
+  });
+  await build({
+    inputDir: '/top/pages',
+    outputDir: '/out',
+    topDir: '/top',
+    fs,
+  });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<title>My Site<\/title>/);
+  assert.match(html, /<h1>Body<\/h1>/);
+});
+
+test('a referenced identifier with no matching module property renders as undefined, not a ReferenceError', async () => {
+  const fs = makeFs({
+    '/in/index.mdx': '<p>{missingProp ?? \'fallback\'}</p>\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  assert.match(
+    await fs.promises.readFile('/out/index.html', 'utf8'),
+    /<p>fallback<\/p>/,
+  );
+});

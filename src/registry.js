@@ -46,6 +46,8 @@ export function createRegistry({ fs, topDir }) {
       resolve: makeResolver(absPath),
     });
     Object.assign(mm, compiled);
+    const original = mm.default;
+    mm.default = (props = {}) => original({ ...props, __immolate_self: mm });
     mdxModules.get(absPath).status = 'done';
     return mm;
   }

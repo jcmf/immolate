@@ -55,6 +55,19 @@ export const tags = ['general'];
 
 After compilation, this module exposes `mm.title === 'About'`, `mm.tags === ['general']`, and a default render function.
 
+Inside JSX expressions, a module's own properties are also accessible as bare identifiers — handy for templating against frontmatter and the synthesized `childPages` / `layout`:
+
+```mdx
+---
+title: Index
+---
+# {title}
+
+<ul>{[...childPages].map((c) => <li>{c.title}</li>)}</ul>
+```
+
+Identifiers shadowed by parameters or local declarations resolve normally; it's only otherwise-unbound identifiers that fall through to the module object.
+
 ## Layouts
 
 A layout wraps another module's content. It's just an MDX module whose `default` render function reads the wrapped module from `props.children`:
