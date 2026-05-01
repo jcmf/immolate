@@ -64,10 +64,19 @@ test('does not mutate the original module objects', () => {
   assert.deepEqual({ ...leaf }, before);
 });
 
-test('detects layout cycles', () => {
-  const a = { default: (props) => jsx('a', { children: props.children }) };
-  const b = { default: (props) => jsx('b', { children: props.children }) };
+test('detects layout cycles and shows the chain', () => {
+  const a = {
+    name: 'a',
+    default: (props) => jsx('a', { children: props.children }),
+  };
+  const b = {
+    name: 'b',
+    default: (props) => jsx('b', { children: props.children }),
+  };
   a.layout = b;
   b.layout = a;
-  assert.throws(() => renderModule(a), /Layout chain exceeded depth/);
+  assert.throws(
+    () => renderModule(a),
+    /Layout cycle detected: a → b → a\./,
+  );
 });

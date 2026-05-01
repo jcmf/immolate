@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Volume, createFsFromVolume } from 'memfs';
 import { build } from '../src/index.js';
+import { createRegistry } from '../src/registry.js';
 
 function makeFs(files) {
   return createFsFromVolume(Volume.fromJSON(files));
@@ -177,3 +178,10 @@ test('two pages importing the same .mdx share one mm (no double compile)', async
   delete globalThis.__c;
 });
 
+test('registry.resolveSpec rejects bare specs and shows the importer relative to topDir', () => {
+  const reg = createRegistry({ fs: makeFs({}), topDir: '/top' });
+  assert.throws(
+    () => reg.resolveSpec('/top/pages/index.mdx', 'bare-pkg'),
+    /Cannot resolve import "bare-pkg" from "pages\/index\.mdx": specs must start with "\/", "\.\/", or "\.\.\/"\./,
+  );
+});

@@ -28,11 +28,33 @@ test('all four equivalent input forms produce the same output path', async () =>
   }
 });
 
-test('errors when no root index.md/.mdx exists', async () => {
+test('errors when no root index.md/.mdx exists, naming the searched directory', async () => {
   const fs = makeFs({ '/in/foo.md': '# F\n' });
   await assert.rejects(
     () => build({ inputDir: '/in', outputDir: '/out', fs }),
-    /No root module found/,
+    /No root module found in "\/in": create index\.md or index\.mdx there\./,
+  );
+});
+
+test('compile errors are wrapped with the offending file path', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# r\n',
+    '/in/broken.mdx': '<div',
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/in', outputDir: '/out', topDir: '/in', fs }),
+    /Failed to compile "broken\.mdx":/,
+  );
+});
+
+test('an orphan module names its source file and suggests the missing index', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# r\n',
+    '/in/missing-parent/leaf.md': '# leaf\n',
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/in', outputDir: '/out', fs }),
+    /Module "missing-parent\/leaf\.md" has no parent module at "missing-parent": create missing-parent\/index\.md or missing-parent\/index\.mdx\./,
   );
 });
 
@@ -227,7 +249,7 @@ test('a layout loaded by name can itself declare a string layout (chain)', async
   );
 });
 
-test('a missing string layout errors with both candidate paths in the message', async () => {
+test('a missing string layout errors with both candidate paths and the requesting page', async () => {
   const fs = makeFs({
     '/top/pages/index.md': '---\nlayout: missing\n---\n# Hi\n',
   });
@@ -239,7 +261,7 @@ test('a missing string layout errors with both candidate paths in the message', 
         topDir: '/top',
         fs,
       }),
-    /Layout "missing" not found: tried .*missing\.mdx and .*missing\.md\./,
+    /Layout "missing" \(requested by "index\.md"\) not found: tried .*missing\.mdx and .*missing\.md\./,
   );
 });
 

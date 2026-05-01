@@ -104,10 +104,10 @@ test('a module with no layout and no ancestor defaultLayout ends up with layout=
   assert.equal(child(root, 'foo').layout, undefined);
 });
 
-test('errors when a non-root module has no parent in the tree', () => {
+test('errors when a non-root module has no parent, naming source file and fix', () => {
   assert.throws(
     () => assembleTree([entry([]), entry(['missing-parent', 'leaf'])]),
-    /no parent module at "missing-parent"/,
+    /Module "missing-parent\/leaf\.md" has no parent module at "missing-parent": create missing-parent\/index\.md or missing-parent\/index\.mdx\./,
   );
 });
 

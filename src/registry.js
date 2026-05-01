@@ -17,6 +17,11 @@ export function createRegistry({ fs, topDir }) {
   const mdxModules = new Map();
   const jsModules = new Map();
 
+  function displayPath(absPath) {
+    const rel = path.posix.relative(topDir, absPath);
+    return rel && !rel.startsWith('..') ? rel : absPath;
+  }
+
   function resolveSpec(importerAbsPath, spec) {
     if (spec.startsWith('/')) {
       return path.posix.join(topDir, spec);
@@ -25,7 +30,7 @@ export function createRegistry({ fs, topDir }) {
       return path.posix.resolve(path.posix.dirname(importerAbsPath), spec);
     }
     throw new Error(
-      `Cannot resolve import "${spec}" from "${importerAbsPath}": specs must start with "/", "./", or "../".`,
+      `Cannot resolve import "${spec}" from "${displayPath(importerAbsPath)}": specs must start with "/", "./", or "../".`,
     );
   }
 
@@ -41,10 +46,18 @@ export function createRegistry({ fs, topDir }) {
     const mm = {};
     mdxModules.set(absPath, { mm, status: 'compiling' });
     const source = await fs.promises.readFile(absPath, 'utf8');
-    const compiled = await compileSource(source, {
-      importerPath: absPath,
-      resolve: makeResolver(absPath),
-    });
+    let compiled;
+    try {
+      compiled = await compileSource(source, {
+        importerPath: absPath,
+        resolve: makeResolver(absPath),
+      });
+    } catch (e) {
+      throw new Error(
+        `Failed to compile "${displayPath(absPath)}": ${e.message}`,
+        { cause: e },
+      );
+    }
     Object.assign(mm, compiled);
     const original = mm.default;
     mm.default = (props = {}) => original({ ...props, __immolate_self: mm });
@@ -58,7 +71,7 @@ export function createRegistry({ fs, topDir }) {
       if (isMdxLike(absPath)) return await loadMdx(absPath);
       if (isJs(absPath)) return await loadJs(absPath);
       throw new Error(
-        `Unsupported import "${spec}" from "${importerAbsPath}": only .md, .mdx, and .js are supported.`,
+        `Unsupported import "${spec}" from "${displayPath(importerAbsPath)}": only .md, .mdx, and .js are supported.`,
       );
     };
   }

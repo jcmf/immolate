@@ -24,7 +24,7 @@ function nameDefaults(name) {
   return { date, title: titleStr };
 }
 
-export function assembleTree(entries) {
+export function assembleTree(entries, options = {}) {
   const byKey = new Map();
   let root = null;
   for (const entry of entries) {
@@ -32,8 +32,9 @@ export function assembleTree(entries) {
     if (entry.segments.length === 0) root = entry;
   }
   if (!root) {
+    const where = options.inputDir ? ` in "${options.inputDir}"` : '';
     throw new Error(
-      'No root module found (input_dir must contain index.md or index.mdx).',
+      `No root module found${where}: create index.md or index.mdx there.`,
     );
   }
 
@@ -47,7 +48,7 @@ export function assembleTree(entries) {
     const parent = byKey.get(parentKey);
     if (!parent) {
       throw new Error(
-        `Module "${entry.segments.join('/')}" has no parent module at "${parentKey || '(root)'}".`,
+        `Module "${entry.relPath}" has no parent module at "${parentKey}": create ${parentKey}/index.md or ${parentKey}/index.mdx.`,
       );
     }
     const name = entry.segments[entry.segments.length - 1];

@@ -61,9 +61,14 @@ export async function build({
     entry.absPath = absByRel.get(entry.relPath);
     entry.mm = await registry.loadMdx(entry.absPath);
   }
-  const root = assembleTree(entries);
+  const root = assembleTree(entries, { inputDir });
   for (const entry of entries) {
-    await resolveLayoutChain(entry.mm, { fs, layoutsDir, registry });
+    await resolveLayoutChain(entry.mm, {
+      fs,
+      layoutsDir,
+      registry,
+      requesterPath: entry.relPath,
+    });
   }
   await writeNode(root, [], outputDir, fs);
 }
@@ -75,7 +80,7 @@ async function resolveLayoutChain(mm, ctx) {
   await resolveLayoutChain(tmpl, ctx);
 }
 
-async function loadLayoutByName(name, { fs, layoutsDir, registry }) {
+async function loadLayoutByName(name, { fs, layoutsDir, registry, requesterPath }) {
   if (/\.mdx?$/.test(name)) {
     return registry.loadMdx(path.posix.join(layoutsDir, name));
   }
@@ -89,7 +94,8 @@ async function loadLayoutByName(name, { fs, layoutsDir, registry }) {
       if (e.code !== 'ENOENT') throw e;
     }
   }
+  const requestedBy = requesterPath ? ` (requested by "${requesterPath}")` : '';
   throw new Error(
-    `Layout "${name}" not found: tried ${mdxPath} and ${mdPath}.`,
+    `Layout "${name}"${requestedBy} not found: tried ${mdxPath} and ${mdPath}.`,
   );
 }
