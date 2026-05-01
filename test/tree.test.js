@@ -123,3 +123,68 @@ test('the root has no name set; only attached children do', () => {
   assert.equal(root.name, undefined);
   assert.equal(child(root, 'a').name, 'a');
 });
+
+test('dashed YYYY-MM-DD prefix sets date and title-cases the lowercase remainder', () => {
+  const root = assembleTree([entry([]), entry(['2020-01-23-this-is-a-test'])]);
+  const c = child(root, '2020-01-23-this-is-a-test');
+  assert.equal(c.date, '2020-01-23');
+  assert.equal(c.title, 'This Is a Test');
+});
+
+test('compact YYYYMMDD-only name sets date and leaves title unset', () => {
+  const root = assembleTree([entry([]), entry(['20200123'])]);
+  const c = child(root, '20200123');
+  assert.equal(c.date, '2020-01-23');
+  assert.equal(c.title, undefined);
+});
+
+test('compact YYYYMMDD prefix with remainder sets both date and title', () => {
+  const root = assembleTree([entry([]), entry(['20200123-foo-bar'])]);
+  const c = child(root, '20200123-foo-bar');
+  assert.equal(c.date, '2020-01-23');
+  assert.equal(c.title, 'Foo Bar');
+});
+
+test('mixed-case name without a date prefix sets title verbatim and leaves date unset', () => {
+  const root = assembleTree([entry([]), entry(['THIS-is-a-TEST'])]);
+  const c = child(root, 'THIS-is-a-TEST');
+  assert.equal(c.date, undefined);
+  assert.equal(c.title, 'THIS is a TEST');
+});
+
+test('all-lowercase name without a date prefix is title-cased', () => {
+  const root = assembleTree([entry([]), entry(['regular-page'])]);
+  const c = child(root, 'regular-page');
+  assert.equal(c.date, undefined);
+  assert.equal(c.title, 'Regular Page');
+});
+
+test('a bare YYYY-MM-DD name sets only the date', () => {
+  const root = assembleTree([entry([]), entry(['2020-01-23'])]);
+  const c = child(root, '2020-01-23');
+  assert.equal(c.date, '2020-01-23');
+  assert.equal(c.title, undefined);
+});
+
+test('an out-of-range date prefix is not extracted as a date', () => {
+  const root = assembleTree([entry([]), entry(['2020-13-45-foo'])]);
+  const c = child(root, '2020-13-45-foo');
+  assert.equal(c.date, undefined);
+  assert.equal(c.title, '2020 13 45 Foo');
+});
+
+test('explicit mm.date and mm.title override the name-derived defaults', () => {
+  const root = assembleTree([
+    entry([]),
+    entry(['2020-01-23-foo'], { date: '1999-12-31', title: 'Custom' }),
+  ]);
+  const c = child(root, '2020-01-23-foo');
+  assert.equal(c.date, '1999-12-31');
+  assert.equal(c.title, 'Custom');
+});
+
+test('the root module gets no date or title defaults', () => {
+  const root = assembleTree([entry([])]);
+  assert.equal(root.date, undefined);
+  assert.equal(root.title, undefined);
+});

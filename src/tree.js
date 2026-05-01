@@ -1,3 +1,29 @@
+import title from 'title';
+
+const NAME_PATTERN =
+  /^(?:(\d{4})-(\d{2})-(\d{2})|(\d{4})(\d{2})(\d{2}))(?:-(.*))?$/;
+
+function nameDefaults(name) {
+  const m = NAME_PATTERN.exec(name);
+  let date;
+  let remainder = name;
+  if (m) {
+    const y = m[1] ?? m[4];
+    const mo = m[2] ?? m[5];
+    const d = m[3] ?? m[6];
+    if (+mo >= 1 && +mo <= 12 && +d >= 1 && +d <= 31) {
+      date = `${y}-${mo}-${d}`;
+      remainder = m[7] ?? '';
+    }
+  }
+  let titleStr;
+  if (remainder !== '') {
+    const spaced = remainder.replaceAll('-', ' ');
+    titleStr = spaced === spaced.toLowerCase() ? title(spaced) : spaced;
+  }
+  return { date, title: titleStr };
+}
+
 export function assembleTree(entries) {
   const byKey = new Map();
   let root = null;
@@ -24,7 +50,15 @@ export function assembleTree(entries) {
         `Module "${entry.segments.join('/')}" has no parent module at "${parentKey || '(root)'}".`,
       );
     }
-    entry.mm.name = entry.segments[entry.segments.length - 1];
+    const name = entry.segments[entry.segments.length - 1];
+    entry.mm.name = name;
+    const defaults = nameDefaults(name);
+    if (entry.mm.date === undefined && defaults.date !== undefined) {
+      entry.mm.date = defaults.date;
+    }
+    if (entry.mm.title === undefined && defaults.title !== undefined) {
+      entry.mm.title = defaults.title;
+    }
     parent.mm.childPages.push(entry.mm);
   }
 
