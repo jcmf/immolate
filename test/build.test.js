@@ -36,14 +36,33 @@ test('errors when no root index.md/.mdx exists, naming the searched directory', 
   );
 });
 
-test('compile errors are wrapped with the offending file path', async () => {
+test('compile errors include file path, line/column, and a code frame', async () => {
   const fs = makeFs({
     '/in/index.md': '# r\n',
     '/in/broken.mdx': '<div',
   });
   await assert.rejects(
     () => build({ inputDir: '/in', outputDir: '/out', topDir: '/in', fs }),
-    /Failed to compile "broken\.mdx":/,
+    (e) => {
+      assert.match(e.message, /^Failed to compile "broken\.mdx" \(line 1, column \d+\):/);
+      assert.match(e.message, /\n1 \| <div\n {2}\| {5}\^/);
+      return true;
+    },
+  );
+});
+
+test('a typo in a {} expression points the caret at the typo', async () => {
+  const fs = makeFs({ '/in/index.md': '# Hi {foo.}\n' });
+  await assert.rejects(
+    () => build({ inputDir: '/in', outputDir: '/out', topDir: '/in', fs }),
+    (e) => {
+      assert.match(
+        e.message,
+        /^Failed to compile "index\.md" \(line 1, column 11\): /,
+      );
+      assert.match(e.message, /\n1 \| # Hi \{foo\.\}\n {2}\| {11}\^/);
+      return true;
+    },
   );
 });
 

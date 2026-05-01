@@ -26,4 +26,11 @@ inputDir = path.resolve(topDir, inputDir);
 outputDir = path.resolve(topDir, outputDir);
 layoutsDir = path.resolve(topDir, layoutsDir);
 
-await build({ inputDir, outputDir, topDir, layoutsDir, fs });
+try {
+  await build({ inputDir, outputDir, topDir, layoutsDir, fs });
+} catch (e) {
+  if (process.env.IMMOLATE_DEBUG) throw e;
+  console.error(e.message);
+  console.error('\n(set IMMOLATE_DEBUG=1 for the full stack)');
+  process.exit(1);
+}

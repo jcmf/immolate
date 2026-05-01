@@ -5,6 +5,44 @@ import { compileSource } from './compile.js';
 const MDX_EXT_RE = /\.mdx?$/;
 const JS_EXT_RE = /\.js$/;
 
+function compileErrorPosition(cause) {
+  const line =
+    cause.line ??
+    cause.place?.start?.line ??
+    cause.place?.line ??
+    null;
+  const column =
+    cause.column ??
+    cause.place?.start?.column ??
+    cause.place?.column ??
+    null;
+  return { line, column };
+}
+
+function codeFrame(source, line, column) {
+  const lines = source.split('\n');
+  if (line < 1 || line > lines.length) return null;
+  const errorLine = lines[line - 1];
+  const gutter = String(line).length;
+  const head = `${String(line).padStart(gutter)} | ${errorLine}`;
+  if (!column) return head;
+  const caretIndent = ' '.repeat(Math.max(0, column - 1));
+  return `${head}\n${' '.repeat(gutter)} | ${caretIndent}^`;
+}
+
+function makeCompileError(displayPath, source, cause) {
+  const { line, column } = compileErrorPosition(cause);
+  const reason = cause.reason ?? cause.message ?? String(cause);
+  const where = line != null && column != null ? ` (line ${line}, column ${column})` : '';
+  let msg = `Failed to compile "${displayPath}"${where}: ${reason}`;
+  if (line != null) {
+    const frame = codeFrame(source, line, column);
+    if (frame) msg += `\n\n${frame}`;
+  }
+  if (cause.url) msg += `\n\nSee: ${cause.url}`;
+  return new Error(msg);
+}
+
 export function isMdxLike(absPath) {
   return MDX_EXT_RE.test(absPath);
 }
@@ -53,10 +91,7 @@ export function createRegistry({ fs, topDir }) {
         resolve: makeResolver(absPath),
       });
     } catch (e) {
-      throw new Error(
-        `Failed to compile "${displayPath(absPath)}": ${e.message}`,
-        { cause: e },
-      );
+      throw makeCompileError(displayPath(absPath), source, e);
     }
     Object.assign(mm, compiled);
     const original = mm.default;

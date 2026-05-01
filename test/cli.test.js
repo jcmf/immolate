@@ -111,3 +111,28 @@ test('CLI exits non-zero with usage message when given too many args', () => {
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /Usage: immolate \[top_dir\]/);
 });
+
+test('CLI prints a clean rich compile error and exits 1, with no internal stack', () => {
+  const top = setupTopDir('compile-error-clean', {
+    files: { 'pages/index.md': '# Hi {foo.}\n' },
+  });
+  const r = runCli([top]);
+  assert.equal(r.status, 1);
+  assert.match(
+    r.stderr,
+    /^Failed to compile "pages\/index\.md" \(line 1, column 11\):/,
+  );
+  assert.match(r.stderr, /\n1 \| # Hi \{foo\.\}\n {2}\| {11}\^/);
+  assert.match(r.stderr, /\(set IMMOLATE_DEBUG=1 for the full stack\)/);
+  assert.doesNotMatch(r.stderr, /at \w.*registry\.js/);
+  assert.doesNotMatch(r.stderr, /\[cause\]:/);
+});
+
+test('CLI with IMMOLATE_DEBUG=1 surfaces the full stack', () => {
+  const top = setupTopDir('compile-error-debug', {
+    files: { 'pages/index.md': '# Hi {foo.}\n' },
+  });
+  const r = runCli([top], { env: { ...process.env, IMMOLATE_DEBUG: '1' } });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /at \w.*registry\.js/);
+});
