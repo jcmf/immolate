@@ -369,3 +369,87 @@ test('a referenced identifier with no matching module property renders as undefi
     /<p>fallback<\/p>/,
   );
 });
+
+test('renaming a page removes its old output on the next build', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# r\n',
+    '/in/old-name.md': '# Old\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  assert.match(
+    await fs.promises.readFile('/out/old-name/index.html', 'utf8'),
+    /<h1>Old<\/h1>/,
+  );
+
+  await fs.promises.rm('/in/old-name.md');
+  await fs.promises.writeFile('/in/new-name.md', '# New\n');
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+
+  await assert.rejects(
+    () => fs.promises.stat('/out/old-name/index.html'),
+    (e) => e.code === 'ENOENT',
+  );
+  assert.match(
+    await fs.promises.readFile('/out/new-name/index.html', 'utf8'),
+    /<h1>New<\/h1>/,
+  );
+});
+
+test('deleting a page removes its old output on the next build', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# r\n',
+    '/in/gone.md': '# G\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  assert.match(
+    await fs.promises.readFile('/out/gone/index.html', 'utf8'),
+    /<h1>G<\/h1>/,
+  );
+
+  await fs.promises.rm('/in/gone.md');
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+
+  await assert.rejects(
+    () => fs.promises.stat('/out/gone/index.html'),
+    (e) => e.code === 'ENOENT',
+  );
+});
+
+test('first build succeeds when outputDir does not yet exist', async () => {
+  const fs = makeFs({ '/in/index.md': '# Hi\n' });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  assert.match(
+    await fs.promises.readFile('/out/index.html', 'utf8'),
+    /<h1>Hi<\/h1>/,
+  );
+});
+
+test('outputDir equal to inputDir is rejected', async () => {
+  const fs = makeFs({ '/in/index.md': '# r\n' });
+  await assert.rejects(
+    () => build({ inputDir: '/in', outputDir: '/in', fs }),
+    /outputDir "\/in" must not be the same as or an ancestor of/,
+  );
+});
+
+test('outputDir as an ancestor of inputDir is rejected', async () => {
+  const fs = makeFs({ '/top/pages/index.md': '# r\n' });
+  await assert.rejects(
+    () =>
+      build({
+        inputDir: '/top/pages',
+        outputDir: '/top',
+        topDir: '/top',
+        fs,
+      }),
+    /outputDir "\/top" must not be the same as or an ancestor of/,
+  );
+});
+
+test('outputDir of "/" is rejected', async () => {
+  const fs = makeFs({ '/in/index.md': '# r\n' });
+  await assert.rejects(
+    () => build({ inputDir: '/in', outputDir: '/', fs }),
+    /outputDir must be a non-root directory path/,
+  );
+});

@@ -36,6 +36,27 @@ async function writeNode(mm, segments, outputDir, fs) {
   }
 }
 
+function isInsideOrSame(parent, child) {
+  if (parent === child) return true;
+  const sep = parent.endsWith('/') ? parent : `${parent}/`;
+  return child.startsWith(sep);
+}
+
+function assertSafeOutputDir(outputDir, sources) {
+  if (!outputDir || outputDir === '/' || outputDir === '.') {
+    throw new Error(
+      `outputDir must be a non-root directory path (got "${outputDir}").`,
+    );
+  }
+  for (const [name, dir] of Object.entries(sources)) {
+    if (isInsideOrSame(outputDir, dir)) {
+      throw new Error(
+        `outputDir "${outputDir}" must not be the same as or an ancestor of ${name} "${dir}" (it is wiped at the start of every build).`,
+      );
+    }
+  }
+}
+
 export async function build({
   inputDir,
   outputDir,
@@ -45,11 +66,14 @@ export async function build({
   fs,
 }) {
   inputDir = path.posix.resolve(inputDir);
+  outputDir = path.posix.resolve(outputDir);
   topDir = topDir != null ? path.posix.resolve(topDir) : inputDir;
   layoutsDir =
     layoutsDir != null
       ? path.posix.resolve(layoutsDir)
       : path.posix.join(topDir, 'layouts');
+  assertSafeOutputDir(outputDir, { topDir, inputDir, layoutsDir });
+  await fs.promises.rm(outputDir, { recursive: true, force: true });
   const files = await walkMdx(fs, inputDir);
   const entries = resolveLogicalPaths(files.map((f) => f.relPath));
   entries.sort((a, b) =>

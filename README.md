@@ -25,6 +25,8 @@ To override the input or output location, add an `immolate` section to `TOP_DIR/
 
 Relative paths in config are resolved against `TOP_DIR`, not the working directory; absolute paths are used as-is.
 
+`OUTPUT_DIR` is wiped at the start of every build so that renames and deletions can't leave stale files behind. Don't point it at a directory that holds anything you want to keep, and don't hand-edit files inside it — anything you put there will be erased on the next run. As a guard against catastrophic misconfiguration, immolate refuses to build if `outputDir` is `/`, equal to a source directory, or an ancestor of `topDir`/`inputDir`/`layoutsDir`.
+
 ## How input maps to output
 
 `immolate` walks `INPUT_DIR/**/*.{md,mdx}`. Each file becomes `OUTPUT_DIR/<path>/index.html`. The four forms below are **equivalent and mutually exclusive** — putting two of them in the same input tree is an error:
