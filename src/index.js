@@ -41,6 +41,7 @@ export async function build({
   outputDir,
   topDir,
   layoutsDir,
+  remarkPlugins,
   fs,
 }) {
   inputDir = path.posix.resolve(inputDir);
@@ -56,7 +57,7 @@ export async function build({
   );
   const absByRel = new Map(files.map((f) => [f.relPath, f.absPath]));
 
-  const registry = createRegistry({ fs, topDir });
+  const registry = createRegistry({ fs, topDir, remarkPlugins });
   for (const entry of entries) {
     entry.absPath = absByRel.get(entry.relPath);
     entry.mm = await registry.loadMdx(entry.absPath);

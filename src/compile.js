@@ -15,8 +15,13 @@ async function defaultResolve(spec) {
 
 export async function compileSource(source, options = {}) {
   const resolve = options.resolve ?? defaultResolve;
+  const userRemarkPlugins = options.remarkPlugins ?? [];
   const compiled = await compile(source, {
-    remarkPlugins: [remarkFrontmatter, remarkMdxFrontmatter],
+    remarkPlugins: [
+      remarkFrontmatter,
+      remarkMdxFrontmatter,
+      ...userRemarkPlugins,
+    ],
     recmaPlugins: [recmaImports, recmaSelf],
     outputFormat: 'function-body',
     baseUrl: 'file:///immolate/',

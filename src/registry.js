@@ -51,7 +51,7 @@ export function isJs(absPath) {
   return JS_EXT_RE.test(absPath);
 }
 
-export function createRegistry({ fs, topDir }) {
+export function createRegistry({ fs, topDir, remarkPlugins }) {
   const mdxModules = new Map();
   const jsModules = new Map();
 
@@ -89,6 +89,7 @@ export function createRegistry({ fs, topDir }) {
       compiled = await compileSource(source, {
         importerPath: absPath,
         resolve: makeResolver(absPath),
+        remarkPlugins,
       });
     } catch (e) {
       throw makeCompileError(displayPath(absPath), source, e);
