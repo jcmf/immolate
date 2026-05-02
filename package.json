@@ -19,6 +19,15 @@
     "title": "^4.0.1"
   },
   "devDependencies": {
-    "memfs": "^4.17.0"
+    "memfs": "^4.17.0",
+    "sharp": "^0.34.5"
+  },
+  "peerDependencies": {
+    "sharp": "^0.34.0"
+  },
+  "peerDependenciesMeta": {
+    "sharp": {
+      "optional": true
+    }
   }
 }

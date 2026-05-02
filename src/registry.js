@@ -58,7 +58,7 @@ export function isJs(absPath) {
   return JS_EXT_RE.test(absPath);
 }
 
-export function createRegistry({ fs, topDir, remarkPlugins }) {
+export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry }) {
   const mdxModules = new Map();
   const jsxModules = new Map();
   const jsModules = new Map();
@@ -141,8 +141,16 @@ export function createRegistry({ fs, topDir, remarkPlugins }) {
             }),
           };
         }
+        if (spec === 'immolate:image') {
+          if (!imageRegistry) {
+            throw new Error(
+              `"immolate:image" was imported from "${displayPath(importerAbsPath)}" but no image registry was provided to createRegistry.`,
+            );
+          }
+          return { Image: imageRegistry.forImporter(importerAbsPath) };
+        }
         throw new Error(
-          `Unknown builtin module "${spec}" imported from "${displayPath(importerAbsPath)}". Available: "immolate:builtins".`,
+          `Unknown builtin module "${spec}" imported from "${displayPath(importerAbsPath)}". Available: "immolate:builtins", "immolate:image".`,
         );
       }
       const absPath = resolveSpec(importerAbsPath, spec);

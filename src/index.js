@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { createImageRegistry } from './image.js';
 import { resolveLogicalPaths } from './paths.js';
 import { assembleTree } from './tree.js';
 import { renderModule } from './render.js';
@@ -25,14 +26,24 @@ async function walkMdx(fs, root) {
   return results;
 }
 
-async function writeNode(mm, segments, outputDir, fs) {
+function renderTree(mm, segments, outputDir, pages) {
   const { html } = renderModule(mm);
   const outPath = [outputDir, ...segments, 'index.html'].join('/');
-  const dir = outPath.substring(0, outPath.lastIndexOf('/'));
-  await fs.promises.mkdir(dir, { recursive: true });
-  await fs.promises.writeFile(outPath, html);
+  pages.push({ outPath, html });
   for (const child of mm.childPages) {
-    await writeNode(child, [...segments, child.name], outputDir, fs);
+    renderTree(child, [...segments, child.name], outputDir, pages);
+  }
+}
+
+async function writePages(pages, substitute, fs) {
+  const dirs = new Set();
+  for (const { outPath, html } of pages) {
+    const dir = outPath.substring(0, outPath.lastIndexOf('/'));
+    if (!dirs.has(dir)) {
+      await fs.promises.mkdir(dir, { recursive: true });
+      dirs.add(dir);
+    }
+    await fs.promises.writeFile(outPath, substitute(html));
   }
 }
 
@@ -63,6 +74,7 @@ export async function build({
   topDir,
   layoutsDir,
   remarkPlugins,
+  imageInlineThreshold,
   fs,
 }) {
   inputDir = path.posix.resolve(inputDir);
@@ -81,7 +93,13 @@ export async function build({
   );
   const absByRel = new Map(files.map((f) => [f.relPath, f.absPath]));
 
-  const registry = createRegistry({ fs, topDir, remarkPlugins });
+  const imageRegistry = createImageRegistry({
+    fs,
+    topDir,
+    outputDir,
+    defaultInlineThreshold: imageInlineThreshold,
+  });
+  const registry = createRegistry({ fs, topDir, remarkPlugins, imageRegistry });
   for (const entry of entries) {
     entry.absPath = absByRel.get(entry.relPath);
     entry.mm = await registry.loadMdx(entry.absPath);
@@ -95,7 +113,10 @@ export async function build({
       requesterPath: entry.relPath,
     });
   }
-  await writeNode(root, [], outputDir, fs);
+  const pages = [];
+  renderTree(root, [], outputDir, pages);
+  const substitute = await imageRegistry.processAll();
+  await writePages(pages, substitute, fs);
 }
 
 async function resolveLayoutChain(mm, ctx) {

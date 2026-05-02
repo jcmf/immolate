@@ -152,6 +152,6 @@ test('importing an unknown immolate: module errors with a clear message', async 
   });
   await assert.rejects(
     () => build({ inputDir: '/in', outputDir: '/out', fs }),
-    /Unknown builtin module "immolate:nope".*Available: "immolate:builtins"/s,
+    /Unknown builtin module "immolate:nope".*"immolate:builtins"/s,
   );
 });

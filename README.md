@@ -149,6 +149,38 @@ Available named exports:
 
 Importing from `immolate:builtins` works identically in `.md`, `.mdx`, and `.jsx` files. Names you don't import don't shadow anything, so you're free to define a local `html` or `readfile` of your own.
 
+### `<Image>`
+
+`immolate:image` exports a build-time image component. It reads a source image, processes it with [sharp](https://sharp.pixelplumbing.com/), and emits an `<img>` tag whose `src` is either a `data:` URL (for small outputs) or a content-addressed file under `OUTPUT_DIR/_assets/`.
+
+```mdx
+import {Image} from 'immolate:image';
+
+<Image src="./hero.jpg" alt="Sunset over the bay" width={1200} />
+```
+
+`sharp` is an optional peer dep — install it with `npm install sharp` when you first use `<Image>`. The component is loaded lazily, so projects that don't use it don't pay the install cost.
+
+**Props specific to `<Image>`:**
+
+- `src` (required) — path to the source image. Same resolution rules as `readfile`: `/foo` is rooted at `TOP_DIR`, anything else is relative to the importing file.
+- `alt` (required) — accessible text. Use `alt=""` for purely decorative images. A missing `alt` is a build error.
+- `width`, `height` — pixel dimensions to resize to. If only one is given, aspect ratio is preserved. Sharp's `withoutEnlargement` is on, so a small source won't be upscaled.
+- `format` — `'avif'` (default), `'webp'`, `'jpeg'`, `'png'`. SVG sources are passed through unchanged; specifying a format on an SVG is an error.
+- `quality` — encoder quality (sharp's per-format defaults if unset).
+- `fit` — sharp fit mode: `'cover' | 'contain' | 'fill' | 'inside' | 'outside'`. Default `'inside'`.
+- `inlineThreshold` — bytes. Outputs at or below this size are inlined as `data:` URLs; outputs above it are written to `OUTPUT_DIR/_assets/<hash>.<ext>` and referenced by absolute URL. Defaults to **8192 bytes**, configurable project-wide via `package.json` `immolate.imageInlineThreshold`.
+
+**Behavior baked in by default:**
+
+- EXIF rotation is auto-applied; all other metadata is stripped (privacy + bytes).
+- Output `width` and `height` attributes are always emitted, computed from the *processed* image, so the browser doesn't reflow on load.
+- Identical `(src, processing-options)` deduplicates to a single asset file across the whole site.
+
+Any extra props (`className`, `loading`, `decoding`, `id`, `data-*`, etc.) pass through to the rendered `<img>`. `className` is rewritten to `class`. Asset URLs are absolute (`/_assets/…`), so the site is expected to be served from the root.
+
+Single-output-per-call only for now — `<picture>`/`srcset` for responsive images is a planned follow-up. There's no build cache yet either, so sharp re-runs on every build.
+
 ## Limitations
 
 - No client-side runtime, hydration, or watch mode.

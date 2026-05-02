@@ -16,6 +16,7 @@ let inputDir = 'pages';
 let outputDir = 'site';
 let layoutsDir = 'layouts';
 let remarkPluginSpecs = [];
+let imageInlineThreshold;
 
 const pkgPath = path.join(topDir, 'package.json');
 if (fs.existsSync(pkgPath)) {
@@ -24,6 +25,9 @@ if (fs.existsSync(pkgPath)) {
   if (pkg.immolate?.outputDir) outputDir = pkg.immolate.outputDir;
   if (pkg.immolate?.layoutsDir) layoutsDir = pkg.immolate.layoutsDir;
   if (pkg.immolate?.remarkPlugins) remarkPluginSpecs = pkg.immolate.remarkPlugins;
+  if (typeof pkg.immolate?.imageInlineThreshold === 'number') {
+    imageInlineThreshold = pkg.immolate.imageInlineThreshold;
+  }
 }
 
 inputDir = path.resolve(topDir, inputDir);
@@ -75,7 +79,15 @@ async function loadRemarkPlugins(specs) {
 
 try {
   const remarkPlugins = await loadRemarkPlugins(remarkPluginSpecs);
-  await build({ inputDir, outputDir, topDir, layoutsDir, remarkPlugins, fs });
+  await build({
+    inputDir,
+    outputDir,
+    topDir,
+    layoutsDir,
+    remarkPlugins,
+    imageInlineThreshold,
+    fs,
+  });
 } catch (e) {
   if (process.env.IMMOLATE_DEBUG) throw e;
   console.error(e.message);
