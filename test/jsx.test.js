@@ -56,16 +56,27 @@ test('a .jsx file can import an .mdx fragment and render it as a component', asy
   assert.match(html, /<article><h2>Sub<\/h2><\/article>/);
 });
 
-test('.jsx files have ambient html() and readfile() builtins', async () => {
+test('.jsx files can import html() and readfile() from immolate:builtins', async () => {
   const html = await buildAndRead({
     '/in/index.md': "import Inj from './inj.jsx';\n\n<Inj />\n",
     '/in/inj.jsx':
+      "import {html, readfile} from 'immolate:builtins';\n" +
       'export default function Inj() {\n' +
       "  return <div>{html('<!doctype-fragment>')}|{readfile('./greet.txt')}</div>;\n" +
       '}\n',
     '/in/greet.txt': 'hi-from-readfile',
   });
   assert.match(html, /<div><!doctype-fragment>\|hi-from-readfile<\/div>/);
+});
+
+test('.jsx without importing the builtin can use the name freely', async () => {
+  const html = await buildAndRead({
+    '/in/index.md': "import C from './c.jsx';\n\n<C />\n",
+    '/in/c.jsx':
+      'const html = (s) => ({html: "[user:" + s + "]"});\n' +
+      'export default function C() { return <span>{html("v")}</span>; }\n',
+  });
+  assert.match(html, /<span>\[user:v\]<\/span>/);
 });
 
 test('non-Identifier top-level statements are allowed in .jsx (plain const)', async () => {

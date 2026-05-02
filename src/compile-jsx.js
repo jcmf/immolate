@@ -104,7 +104,7 @@ function expandUserImport(node, mkNs) {
 function transformModule(ast) {
   const newBody = [];
   const exportProps = [];
-  const runtimeProps = [shorthandProp('html'), shorthandProp('readfile')];
+  const runtimeProps = [];
   let nsCounter = 0;
 
   for (const node of ast.body) {
@@ -171,23 +171,25 @@ function transformModule(ast) {
     newBody.push(node);
   }
 
-  newBody.unshift({
-    type: 'VariableDeclaration',
-    kind: 'const',
-    declarations: [
-      {
-        type: 'VariableDeclarator',
-        id: { type: 'ObjectPattern', properties: runtimeProps },
-        init: {
-          type: 'MemberExpression',
-          object: id('arguments'),
-          property: lit(0),
-          computed: true,
-          optional: false,
+  if (runtimeProps.length > 0) {
+    newBody.unshift({
+      type: 'VariableDeclaration',
+      kind: 'const',
+      declarations: [
+        {
+          type: 'VariableDeclarator',
+          id: { type: 'ObjectPattern', properties: runtimeProps },
+          init: {
+            type: 'MemberExpression',
+            object: id('arguments'),
+            property: lit(0),
+            computed: true,
+            optional: false,
+          },
         },
-      },
-    ],
-  });
+      ],
+    });
+  }
 
   newBody.push({
     type: 'ReturnStatement',
@@ -220,7 +222,5 @@ export async function compileJsxSource(source, options = {}) {
   return await fn({
     ...runtime,
     __immolate_resolve: resolve,
-    html: options.html,
-    readfile: options.readfile,
   });
 }

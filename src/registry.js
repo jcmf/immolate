@@ -96,13 +96,6 @@ export function createRegistry({ fs, topDir, remarkPlugins }) {
     try {
       compiled = await compileJsxSource(source, {
         resolve: makeResolver(absPath),
-        html: htmlBuiltin,
-        readfile: makeReadfile({
-          fs,
-          topDir,
-          importerAbsPath: absPath,
-          importerDisplay: displayPath(absPath),
-        }),
       });
     } catch (e) {
       throw makeCompileError(displayPath(absPath), source, e);
@@ -128,13 +121,6 @@ export function createRegistry({ fs, topDir, remarkPlugins }) {
       throw makeCompileError(displayPath(absPath), source, e);
     }
     Object.assign(mm, compiled);
-    mm.html ??= htmlBuiltin;
-    mm.readfile ??= makeReadfile({
-      fs,
-      topDir,
-      importerAbsPath: absPath,
-      importerDisplay: displayPath(absPath),
-    });
     const original = mm.default;
     mm.default = (props = {}) => original({ ...props, __immolate_self: mm });
     mdxModules.get(absPath).status = 'done';
@@ -143,6 +129,22 @@ export function createRegistry({ fs, topDir, remarkPlugins }) {
 
   function makeResolver(importerAbsPath) {
     return async function resolve(spec) {
+      if (spec.startsWith('immolate:')) {
+        if (spec === 'immolate:builtins') {
+          return {
+            html: htmlBuiltin,
+            readfile: makeReadfile({
+              fs,
+              topDir,
+              importerAbsPath,
+              importerDisplay: displayPath(importerAbsPath),
+            }),
+          };
+        }
+        throw new Error(
+          `Unknown builtin module "${spec}" imported from "${displayPath(importerAbsPath)}". Available: "immolate:builtins".`,
+        );
+      }
       const absPath = resolveSpec(importerAbsPath, spec);
       if (isMdxLike(absPath)) return await loadMdx(absPath);
       if (isJsx(absPath)) return await loadJsx(absPath);

@@ -1,4 +1,4 @@
-const SPEC_RE = /^(?:\.\.?\/|\/).+\.(mdx?|jsx?)$/;
+const SPEC_RE = /^(?:\.\.?\/|\/).+\.(mdx?|jsx?)$|^immolate:[a-z][a-z0-9-]*$/;
 const MDX_LIKE_RE = /\.mdx?$/;
 
 function id(name) {

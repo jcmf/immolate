@@ -128,6 +128,25 @@ Named (`import { a, b } from ...`) and namespace (`import * as X from ...`) impo
 
 Imports with bare specifiers (`import x from 'react'`), unknown extensions, or paths that escape `INPUT_DIR` are not formally supported and may fail or behave unexpectedly.
 
+## Builtins
+
+A small set of helpers ship with immolate. Like Node's `node:*` modules, they're exposed under an `immolate:` scheme and must be imported explicitly:
+
+```mdx
+import {html, readfile} from 'immolate:builtins';
+
+{html('<!DOCTYPE html>')}
+
+<pre>{readfile('./snippet.txt')}</pre>
+```
+
+Available named exports:
+
+- `html(s)` — wrap a string so the JSX runtime emits it raw, without HTML-escaping. Useful for doctypes, inline SVG, or any time you've already got trusted markup.
+- `readfile(spec)` — synchronously read a file as UTF-8 at build time. Specs starting with `/` resolve against `TOP_DIR`; everything else resolves against the importing file's directory. Throws a clear error if the file is missing.
+
+Importing from `immolate:builtins` works identically in `.md`, `.mdx`, and `.jsx` files. Names you don't import don't shadow anything, so you're free to define a local `html` or `readfile` of your own.
+
 ## Limitations
 
 - No client-side runtime, hydration, or watch mode.
