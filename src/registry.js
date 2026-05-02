@@ -1,9 +1,11 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { html as htmlBuiltin, makeReadfile } from './builtins.js';
+import { compileJsxSource } from './compile-jsx.js';
 import { compileSource } from './compile.js';
 
 const MDX_EXT_RE = /\.mdx?$/;
+const JSX_EXT_RE = /\.jsx$/;
 const JS_EXT_RE = /\.js$/;
 
 function compileErrorPosition(cause) {
@@ -48,12 +50,17 @@ export function isMdxLike(absPath) {
   return MDX_EXT_RE.test(absPath);
 }
 
+export function isJsx(absPath) {
+  return JSX_EXT_RE.test(absPath);
+}
+
 export function isJs(absPath) {
   return JS_EXT_RE.test(absPath);
 }
 
 export function createRegistry({ fs, topDir, remarkPlugins }) {
   const mdxModules = new Map();
+  const jsxModules = new Map();
   const jsModules = new Map();
 
   function displayPath(absPath) {
@@ -78,6 +85,31 @@ export function createRegistry({ fs, topDir, remarkPlugins }) {
     const pending = import(pathToFileURL(absPath).href);
     jsModules.set(absPath, pending);
     return pending;
+  }
+
+  async function loadJsx(absPath) {
+    if (jsxModules.has(absPath)) return jsxModules.get(absPath).mm;
+    const mm = {};
+    jsxModules.set(absPath, { mm, status: 'compiling' });
+    const source = await fs.promises.readFile(absPath, 'utf8');
+    let compiled;
+    try {
+      compiled = await compileJsxSource(source, {
+        resolve: makeResolver(absPath),
+        html: htmlBuiltin,
+        readfile: makeReadfile({
+          fs,
+          topDir,
+          importerAbsPath: absPath,
+          importerDisplay: displayPath(absPath),
+        }),
+      });
+    } catch (e) {
+      throw makeCompileError(displayPath(absPath), source, e);
+    }
+    Object.assign(mm, compiled);
+    jsxModules.get(absPath).status = 'done';
+    return mm;
   }
 
   async function loadMdx(absPath) {
@@ -113,12 +145,13 @@ export function createRegistry({ fs, topDir, remarkPlugins }) {
     return async function resolve(spec) {
       const absPath = resolveSpec(importerAbsPath, spec);
       if (isMdxLike(absPath)) return await loadMdx(absPath);
+      if (isJsx(absPath)) return await loadJsx(absPath);
       if (isJs(absPath)) return await loadJs(absPath);
       throw new Error(
-        `Unsupported import "${spec}" from "${displayPath(importerAbsPath)}": only .md, .mdx, and .js are supported.`,
+        `Unsupported import "${spec}" from "${displayPath(importerAbsPath)}": only .md, .mdx, .jsx, and .js are supported.`,
       );
     };
   }
 
-  return { loadMdx, loadJs, mdxModules, jsModules, resolveSpec };
+  return { loadMdx, loadJsx, loadJs, mdxModules, jsxModules, jsModules, resolveSpec };
 }

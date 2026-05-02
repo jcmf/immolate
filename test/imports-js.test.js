@@ -85,3 +85,14 @@ test('a .js helper that returns html objects works as a JSX component', async ()
   });
   assert.match(html, /<span>hi<\/span>/);
 });
+
+test('a .jsx component can import a .js helper and use it', async () => {
+  const html = await buildAndRead('jsx-imports-js', {
+    'index.mdx': "import C from './c.jsx';\n\n<C />",
+    'c.jsx':
+      "import { shout } from './u.js';\n" +
+      "export default function C() { return <b>{shout('ok')}</b>; }\n",
+    'u.js': "export const shout = (s) => s.toUpperCase();\n",
+  });
+  assert.match(html, /<b>OK<\/b>/);
+});
