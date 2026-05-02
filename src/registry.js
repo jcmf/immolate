@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { html as htmlBuiltin } from './builtins.js';
+import { html as htmlBuiltin, makeReadfile } from './builtins.js';
 import { compileSource } from './compile.js';
 
 const MDX_EXT_RE = /\.mdx?$/;
@@ -97,6 +97,12 @@ export function createRegistry({ fs, topDir, remarkPlugins }) {
     }
     Object.assign(mm, compiled);
     mm.html ??= htmlBuiltin;
+    mm.readfile ??= makeReadfile({
+      fs,
+      topDir,
+      importerAbsPath: absPath,
+      importerDisplay: displayPath(absPath),
+    });
     const original = mm.default;
     mm.default = (props = {}) => original({ ...props, __immolate_self: mm });
     mdxModules.get(absPath).status = 'done';
