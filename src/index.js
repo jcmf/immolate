@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { createAssetRegistry } from './assets.js';
+import { createPlainAssetRegistry } from './assets-plain.js';
 import { createImageRegistry } from './image.js';
 import { createStyleRegistry } from './style.js';
 import { resolveLogicalPaths } from './paths.js';
@@ -45,7 +46,7 @@ async function writePages(pages, substitute, fs) {
       await fs.promises.mkdir(dir, { recursive: true });
       dirs.add(dir);
     }
-    await fs.promises.writeFile(outPath, substitute(html));
+    await fs.promises.writeFile(outPath, substitute(html, outPath));
   }
 }
 
@@ -78,6 +79,7 @@ export async function build({
   remarkPlugins,
   imageInlineThreshold,
   styleInlineThreshold,
+  assetInlineThreshold,
   fs,
 }) {
   inputDir = path.posix.resolve(inputDir);
@@ -109,12 +111,20 @@ export async function build({
     assetRegistry,
     defaultInlineThreshold: styleInlineThreshold,
   });
+  const plainAssetRegistry = createPlainAssetRegistry({
+    fs,
+    topDir,
+    outputDir,
+    assetRegistry,
+    defaultInlineThreshold: assetInlineThreshold,
+  });
   const registry = createRegistry({
     fs,
     topDir,
     remarkPlugins,
     imageRegistry,
     styleRegistry,
+    plainAssetRegistry,
   });
   for (const entry of entries) {
     entry.absPath = absByRel.get(entry.relPath);
@@ -133,8 +143,11 @@ export async function build({
   renderTree(root, [], outputDir, pages);
   const imageSubstitute = await imageRegistry.processAll();
   const styleSubstitute = await styleRegistry.processAll();
+  const assetSubstitute = await plainAssetRegistry.processAll(pages);
   await assetRegistry.writeAll();
-  const substitute = (html) => styleSubstitute(imageSubstitute(html));
+  await plainAssetRegistry.writeAll();
+  const substitute = (html, outPath) =>
+    assetSubstitute(styleSubstitute(imageSubstitute(html)), outPath);
   await writePages(pages, substitute, fs);
 }
 

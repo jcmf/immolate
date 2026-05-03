@@ -59,7 +59,7 @@ export function isJs(absPath) {
   return JS_EXT_RE.test(absPath);
 }
 
-export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, styleRegistry }) {
+export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, styleRegistry, plainAssetRegistry }) {
   const mdxModules = new Map();
   const jsxModules = new Map();
   const jsModules = new Map();
@@ -116,6 +116,7 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
       compiled = await compileSource(source, {
         importerPath: absPath,
         resolve: makeResolver(absPath),
+        asset: plainAssetRegistry?.forImporter(absPath),
         remarkPlugins,
       });
     } catch (e) {

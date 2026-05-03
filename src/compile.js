@@ -2,6 +2,7 @@ import { compile } from '@mdx-js/mdx';
 import remarkFrontmatter from 'remark-frontmatter';
 import remarkMdxFrontmatter from 'remark-mdx-frontmatter';
 import * as runtime from './jsx-runtime.js';
+import { recmaAssets } from './recma-assets.js';
 import { recmaImports } from './recma-imports.js';
 import { recmaSelf } from './recma-self.js';
 
@@ -15,6 +16,7 @@ async function defaultResolve(spec) {
 
 export async function compileSource(source, options = {}) {
   const resolve = options.resolve ?? defaultResolve;
+  const asset = options.asset;
   const userRemarkPlugins = options.remarkPlugins ?? [];
   const compiled = await compile(source, {
     remarkPlugins: [
@@ -22,7 +24,7 @@ export async function compileSource(source, options = {}) {
       remarkMdxFrontmatter,
       ...userRemarkPlugins,
     ],
-    recmaPlugins: [recmaImports, recmaSelf],
+    recmaPlugins: [recmaImports, recmaAssets, recmaSelf],
     outputFormat: 'function-body',
     baseUrl: 'file:///immolate/',
   });
@@ -31,6 +33,7 @@ export async function compileSource(source, options = {}) {
     ...runtime,
     baseUrl: 'file:///immolate/',
     __immolate_resolve: resolve,
+    __immolate_asset: asset ?? ((value) => value),
   });
   return { ...(mod.frontmatter ?? {}), ...mod };
 }
