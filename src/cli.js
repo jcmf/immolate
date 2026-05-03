@@ -17,6 +17,7 @@ let outputDir = 'site';
 let layoutsDir = 'layouts';
 let remarkPluginSpecs = [];
 let imageInlineThreshold;
+let styleInlineThreshold;
 
 const pkgPath = path.join(topDir, 'package.json');
 if (fs.existsSync(pkgPath)) {
@@ -27,6 +28,9 @@ if (fs.existsSync(pkgPath)) {
   if (pkg.immolate?.remarkPlugins) remarkPluginSpecs = pkg.immolate.remarkPlugins;
   if (typeof pkg.immolate?.imageInlineThreshold === 'number') {
     imageInlineThreshold = pkg.immolate.imageInlineThreshold;
+  }
+  if (typeof pkg.immolate?.styleInlineThreshold === 'number') {
+    styleInlineThreshold = pkg.immolate.styleInlineThreshold;
   }
 }
 
@@ -86,6 +90,7 @@ try {
     layoutsDir,
     remarkPlugins,
     imageInlineThreshold,
+    styleInlineThreshold,
     fs,
   });
 } catch (e) {

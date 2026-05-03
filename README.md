@@ -181,6 +181,27 @@ Any extra props (`className`, `loading`, `decoding`, `id`, `data-*`, etc.) pass 
 
 Single-output-per-call only for now — `<picture>`/`srcset` for responsive images is a planned follow-up. There's no build cache yet either, so sharp re-runs on every build.
 
+### `<Style>`
+
+`immolate:style` exports a build-time stylesheet component. It reads a CSS file, rewrites any `url(...)` references to point at hashed copies of the referenced assets, and emits either a `<style>` block (for small CSS) or a `<link rel="stylesheet">` pointing at a content-addressed file under `OUTPUT_DIR/_assets/`.
+
+```mdx
+import {Style} from 'immolate:style';
+
+<Style src="/css/main.css" />
+```
+
+**Props:**
+
+- `src` (required) — path to the source CSS file. Same resolution rules as `<Image>`: `/foo` is rooted at `TOP_DIR`, anything else is relative to the importing file.
+- `inlineThreshold` — bytes. CSS at or below this size is emitted inline as `<style>...</style>`; above, it goes to `OUTPUT_DIR/_assets/<hash>.css` and the call site gets a `<link>` instead. Defaults to **2048 bytes**, configurable project-wide via `package.json` `immolate.styleInlineThreshold`.
+
+**`url()` rewriting.** Any `url(...)` token inside the CSS — `background-image`, `@font-face src`, `cursor`, etc. — is resolved relative to the source CSS file's directory (or against `TOP_DIR` for `/`-rooted paths), the referenced bytes are hashed, and the URL is rewritten to `/_assets/<hash>.<ext>`. URLs starting with `data:`, `http://`, `https://`, `//`, or `#` (SVG fragment refs like `clip-path: url(#mask)`) are passed through unchanged. Identical references across multiple CSS files share a single asset file.
+
+Any extra props (`media`, `nonce`, `crossorigin`, `id`, `data-*`, etc.) pass through to the rendered `<style>` or `<link>`. `className` is rewritten to `class`.
+
+**Caveats:** `@import "..."` (the bare-string form) is not rewritten — only `url(...)` tokens are. SCSS / minification / autoprefixing are not built in; pre-compile to CSS yourself for now (a transform hook is on the roadmap).
+
 ## Limitations
 
 - No client-side runtime, hydration, or watch mode.

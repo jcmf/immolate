@@ -58,7 +58,7 @@ export function isJs(absPath) {
   return JS_EXT_RE.test(absPath);
 }
 
-export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry }) {
+export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, styleRegistry }) {
   const mdxModules = new Map();
   const jsxModules = new Map();
   const jsModules = new Map();
@@ -149,8 +149,16 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry }) {
           }
           return { Image: imageRegistry.forImporter(importerAbsPath) };
         }
+        if (spec === 'immolate:style') {
+          if (!styleRegistry) {
+            throw new Error(
+              `"immolate:style" was imported from "${displayPath(importerAbsPath)}" but no style registry was provided to createRegistry.`,
+            );
+          }
+          return { Style: styleRegistry.forImporter(importerAbsPath) };
+        }
         throw new Error(
-          `Unknown builtin module "${spec}" imported from "${displayPath(importerAbsPath)}". Available: "immolate:builtins", "immolate:image".`,
+          `Unknown builtin module "${spec}" imported from "${displayPath(importerAbsPath)}". Available: "immolate:builtins", "immolate:image", "immolate:style".`,
         );
       }
       const absPath = resolveSpec(importerAbsPath, spec);

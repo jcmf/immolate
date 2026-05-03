@@ -61,7 +61,7 @@ function makeToken() {
 export function createImageRegistry({
   fs,
   topDir,
-  outputDir,
+  assetRegistry,
   defaultInlineThreshold = DEFAULT_INLINE_THRESHOLD,
 }) {
   const calls = [];
@@ -224,7 +224,6 @@ export function createImageRegistry({
     );
 
     const tokenToHtml = new Map();
-    const fileEmissions = new Map();
 
     for (const call of calls) {
       const result = jobResults.get(call.jobKey);
@@ -234,20 +233,8 @@ export function createImageRegistry({
       if (bytes.length <= call.threshold) {
         urlSrc = `data:${mediaType};base64,${bytes.toString('base64')}`;
       } else {
-        const hash = crypto
-          .createHash('sha256')
-          .update(bytes)
-          .digest('hex')
-          .slice(0, 16);
         const ext = format === 'jpg' ? 'jpg' : format;
-        const fname = `${hash}.${ext}`;
-        urlSrc = `/_assets/${fname}`;
-        if (!fileEmissions.has(hash)) {
-          fileEmissions.set(hash, {
-            absPath: `${outputDir}/_assets/${fname}`,
-            bytes,
-          });
-        }
+        urlSrc = assetRegistry.emit(bytes, ext);
       }
 
       const attrs = {};
@@ -261,18 +248,6 @@ export function createImageRegistry({
         if (!(k in ordered)) ordered[k] = v;
       }
       tokenToHtml.set(call.token, `<img${renderAttrString(ordered)}>`);
-    }
-
-    if (fileEmissions.size > 0) {
-      const dirs = new Set();
-      for (const { absPath, bytes } of fileEmissions.values()) {
-        const dir = absPath.substring(0, absPath.lastIndexOf('/'));
-        if (!dirs.has(dir)) {
-          await fs.promises.mkdir(dir, { recursive: true });
-          dirs.add(dir);
-        }
-        await fs.promises.writeFile(absPath, bytes);
-      }
     }
 
     return function substitute(html) {
