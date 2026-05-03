@@ -369,6 +369,30 @@ test('escape hatch works inside .jsx', async () => {
   assert.doesNotMatch(html, /data-immolate-placement/);
 });
 
+test('asset builtin emits an asset and returns its URL', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      "import {asset} from 'immolate:builtins';\n\n" +
+      "<a href={asset('./report.pdf')}>report</a>\n",
+  });
+  await fs.promises.writeFile('/in/report.pdf', bytes(8192));
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<a href="report\.pdf">report<\/a>/);
+});
+
+test('asset builtin supports the placement option', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      "import {asset} from 'immolate:builtins';\n\n" +
+      "<a href={asset('./big.pdf', {placement: 'inline'})}>x</a>\n",
+  });
+  await fs.promises.writeFile('/in/big.pdf', bytes(8192));
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /href="data:application\/pdf;base64,/);
+});
+
 test('respects assetInlineThreshold config', async () => {
   const fs = makeFs({
     '/in/index.md': '<img src="./mid.png" alt="m" />\n',

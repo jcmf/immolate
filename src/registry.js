@@ -142,6 +142,9 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
               importerAbsPath,
               importerDisplay: displayPath(importerAbsPath),
             }),
+            asset: plainAssetRegistry
+              ? plainAssetRegistry.forImporter(importerAbsPath)
+              : (value) => value,
           };
         }
         if (spec === 'immolate:image') {
