@@ -187,6 +187,84 @@ test('dynamic <img src={var}> classifies at runtime', async () => {
   assert.match(html, /<img src="https:\/\/x\/y\.png" alt="b">/);
 });
 
+test('<script src> is processed', async () => {
+  const fs = makeFs({
+    '/in/index.md': '<script src="./app.js"></script>\n',
+  });
+  await fs.promises.writeFile('/in/app.js', bytes(8192));
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<script src="app\.js"><\/script>/);
+});
+
+test('<link rel="stylesheet"> is processed', async () => {
+  const fs = makeFs({
+    '/in/index.md': '<link rel="stylesheet" href="./big.css" />\n',
+  });
+  await fs.promises.writeFile('/in/big.css', bytes(8192, 0x20));
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<link rel="stylesheet" href="big\.css">/);
+});
+
+test('<link rel="icon"> is processed', async () => {
+  const fs = makeFs({
+    '/in/index.md': '<link rel="icon" href="./favicon.ico" />\n',
+  });
+  await fs.promises.writeFile('/in/favicon.ico', bytes(10));
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<link rel="icon" href="data:image\/x-icon;base64,/);
+});
+
+test('<link rel="canonical"> is NOT processed (not an asset rel)', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      '<link rel="canonical" href="https://example.com/page" />\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<link rel="canonical" href="https:\/\/example\.com\/page">/);
+});
+
+test('<link> with shorthand "shortcut icon" rel is processed', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      '<link rel="shortcut icon" href="./favicon.ico" />\n',
+  });
+  await fs.promises.writeFile('/in/favicon.ico', bytes(10));
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /href="data:image\/x-icon;base64,/);
+});
+
+test('<video src> and <video poster> are both processed', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      '<video src="./clip.mp4" poster="./thumb.png"></video>\n',
+  });
+  await fs.promises.writeFile('/in/clip.mp4', bytes(8192));
+  await fs.promises.writeFile('/in/thumb.png', bytes(10));
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /src="clip\.mp4"/);
+  assert.match(html, /poster="data:image\/png;base64,/);
+});
+
+test('<source src> and <audio src> are processed', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      '<audio><source src="./song.ogg" type="audio/ogg" /></audio>\n' +
+      '<audio src="./alt.mp3"></audio>\n',
+  });
+  await fs.promises.writeFile('/in/song.ogg', bytes(10));
+  await fs.promises.writeFile('/in/alt.mp3', bytes(10));
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<source src="data:audio\/ogg;base64,/);
+  assert.match(html, /<audio src="data:audio\/mpeg;base64,/);
+});
+
 test('respects assetInlineThreshold config', async () => {
   const fs = makeFs({
     '/in/index.md': '<img src="./mid.png" alt="m" />\n',

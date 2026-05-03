@@ -15,9 +15,42 @@
 const VALID_PLACEMENTS = new Set(['inline', 'shared', 'co-located', 'auto']);
 const JSX_CALLEES = new Set(['_jsx', '_jsxs', '_jsxDEV', 'jsx', 'jsxs', 'jsxDEV']);
 
-const DEFAULT_TAG_ATTRS = {
+const ASSET_LINK_RELS = new Set([
+  'stylesheet',
+  'icon',
+  'shortcut',
+  'apple-touch-icon',
+  'apple-touch-icon-precomposed',
+  'mask-icon',
+  'preload',
+  'prefetch',
+  'modulepreload',
+  'manifest',
+]);
+
+function linkRelIsAsset(propsNode) {
+  const relProp = findProp(propsNode, 'rel');
+  if (!relProp || !isStringLiteral(relProp.value)) return false;
+  const parts = relProp.value.value.toLowerCase().split(/\s+/);
+  return parts.some((r) => ASSET_LINK_RELS.has(r));
+}
+
+// Each rule lists attributes to rewrite, optionally guarded by a predicate
+// over the props ObjectExpression. Bare-list shorthand (e.g. ['src']) is
+// treated as { attrs: ['src'] } with no predicate.
+const DEFAULT_TAG_RULES = {
   img: ['src'],
+  script: ['src'],
+  source: ['src'],
+  audio: ['src'],
+  video: ['src', 'poster'],
+  link: { attrs: ['href'], predicate: linkRelIsAsset },
 };
+
+function normalizeRule(rule) {
+  if (Array.isArray(rule)) return { attrs: rule, predicate: null };
+  return { attrs: rule.attrs, predicate: rule.predicate ?? null };
+}
 
 function isJsxCallee(node) {
   return node?.type === 'Identifier' && JSX_CALLEES.has(node.name);
@@ -107,15 +140,17 @@ function makeTopDecl() {
   };
 }
 
-function processJsxCall(node, tagAttrs) {
+function processJsxCall(node, tagRules) {
   if (!isJsxCallee(node.callee)) return false;
   if (node.arguments.length < 2) return false;
   const tagName = tagNameOf(node.arguments[0]);
   if (!tagName) return false;
-  const attrs = tagAttrs[tagName];
-  if (!attrs) return false;
+  const rule = tagRules[tagName];
+  if (!rule) return false;
   const propsNode = node.arguments[1];
   if (propsNode?.type !== 'ObjectExpression') return false;
+  const { attrs, predicate } = normalizeRule(rule);
+  if (predicate && !predicate(propsNode)) return false;
 
   let placement;
   const placementProp = findProp(propsNode, 'data-immolate-placement');
@@ -142,15 +177,15 @@ function processJsxCall(node, tagAttrs) {
   return rewrote;
 }
 
-function walk(node, tagAttrs, state) {
+function walk(node, tagRules, state) {
   if (!node) return;
   if (Array.isArray(node)) {
-    for (const item of node) walk(item, tagAttrs, state);
+    for (const item of node) walk(item, tagRules, state);
     return;
   }
   if (typeof node !== 'object' || typeof node.type !== 'string') return;
   if (node.type === 'CallExpression') {
-    if (processJsxCall(node, tagAttrs)) state.rewrote = true;
+    if (processJsxCall(node, tagRules)) state.rewrote = true;
   }
   for (const key in node) {
     if (
@@ -163,15 +198,15 @@ function walk(node, tagAttrs, state) {
       key === 'comments'
     )
       continue;
-    walk(node[key], tagAttrs, state);
+    walk(node[key], tagRules, state);
   }
 }
 
 export function recmaAssets(opts = {}) {
-  const tagAttrs = opts.tagAttrs ?? DEFAULT_TAG_ATTRS;
+  const tagRules = opts.tagRules ?? DEFAULT_TAG_RULES;
   return (tree) => {
     const state = { rewrote: false };
-    walk(tree, tagAttrs, state);
+    walk(tree, tagRules, state);
     if (state.rewrote && tree.type === 'Program') {
       tree.body.unshift(makeTopDecl());
     }
