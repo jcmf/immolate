@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from './index.js';
+import { runLint } from './lint.js';
 
 const args = process.argv.slice(2);
 if (args.length > 1) {
@@ -82,6 +83,7 @@ async function loadRemarkPlugins(specs) {
 }
 
 try {
+  await runLint({ topDir, outputDir });
   const remarkPlugins = await loadRemarkPlugins(remarkPluginSpecs);
   await build({
     inputDir,

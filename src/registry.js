@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { html as htmlBuiltin, makeReadfile } from './builtins.js';
+import { BUILTIN_SPECS } from './builtins-registry.js';
 import { compileJsxSource } from './compile-jsx.js';
 import { compileSource } from './compile.js';
 
@@ -157,8 +158,9 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
           }
           return { Style: styleRegistry.forImporter(importerAbsPath) };
         }
+        const available = BUILTIN_SPECS.map((s) => `"${s}"`).join(', ');
         throw new Error(
-          `Unknown builtin module "${spec}" imported from "${displayPath(importerAbsPath)}". Available: "immolate:builtins", "immolate:image", "immolate:style".`,
+          `Unknown builtin module "${spec}" imported from "${displayPath(importerAbsPath)}". Available: ${available}.`,
         );
       }
       const absPath = resolveSpec(importerAbsPath, spec);

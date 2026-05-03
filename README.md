@@ -202,6 +202,20 @@ Any extra props (`media`, `nonce`, `crossorigin`, `id`, `data-*`, etc.) pass thr
 
 **Caveats:** `@import "..."` (the bare-string form) is not rewritten — only `url(...)` tokens are. SCSS / minification / autoprefixing are not built in; pre-compile to CSS yourself for now (a transform hook is on the roadmap).
 
+## Lint
+
+`immolate` runs ESLint over your `.md`/`.mdx`/`.jsx`/`.js` files automatically before each build, with an opinionated zero-config baseline focused on catching import bugs early — typo'd named imports, missing files, default-vs-named confusion on the `immolate:*` builtins. A lint failure exits 1 with the formatted ESLint output before any HTML is written.
+
+**What's checked:**
+
+- `import/no-unresolved` — flags imports of files that don't exist on disk.
+- `import/named` — flags `import {Foo}` when `Foo` isn't actually exported.
+- `import/no-duplicates` — flags two `import` statements for the same module.
+- `immolate/builtin-imports` — flags default imports, namespace imports, and unknown export names against `immolate:builtins`/`immolate:image`/`immolate:style`. Errors carry the suggested fix (e.g. *"`immolate:style` has no default export. Use `import {Style} from 'immolate:style'` instead."*).
+- `import/default` and `no-undef` — applied to `.js`/`.jsx` only. Off for `.md`/`.mdx` because immolate's default-import semantics there bind the whole module object rather than `mm.default` (a deliberate divergence from ESM).
+
+The config is currently frozen — no user override knob yet; that's a planned follow-up. `eslint`, `eslint-plugin-import`, and `eslint-plugin-mdx` are hard runtime dependencies, so there's nothing to install.
+
 ## Limitations
 
 - No client-side runtime, hydration, or watch mode.
