@@ -1,10 +1,9 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { rewriteCssUrls } from './css-urls.js';
 
 const DEFAULT_INLINE_THRESHOLD = 2048;
 const TOKEN_RE = /__IMMOLATE_STYLE_[a-f0-9]+__/g;
-const URL_RE = /url\(([^)]+)\)/g;
-const EXT_RE = /\.([a-z0-9]+)$/i;
 
 function escAttr(s) {
   return String(s)
@@ -32,27 +31,6 @@ function renderAttrString(attrs) {
 
 function makeToken() {
   return `__IMMOLATE_STYLE_${crypto.randomBytes(12).toString('hex')}__`;
-}
-
-function isPassthroughUrl(url) {
-  return (
-    url.startsWith('data:') ||
-    url.startsWith('http://') ||
-    url.startsWith('https://') ||
-    url.startsWith('//') ||
-    url.startsWith('#')
-  );
-}
-
-function unquote(inner) {
-  const trimmed = inner.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
 }
 
 export function createStyleRegistry({
@@ -102,46 +80,6 @@ export function createStyleRegistry({
     };
   }
 
-  async function rewriteCss(css, sourceAbsPath, sourceDisplay) {
-    const sourceDir = path.posix.dirname(sourceAbsPath);
-    const matches = [...css.matchAll(URL_RE)];
-    if (matches.length === 0) return css;
-
-    const replacements = await Promise.all(
-      matches.map(async (m) => {
-        const url = unquote(m[1]);
-        if (isPassthroughUrl(url)) return null;
-        const absRef = url.startsWith('/')
-          ? path.posix.join(topDir, url)
-          : path.posix.resolve(sourceDir, url);
-        let bytes;
-        try {
-          bytes = await fs.promises.readFile(absRef);
-        } catch (e) {
-          if (e.code === 'ENOENT') {
-            throw new Error(
-              `<Style>: url("${url}") not found at ${absRef} (referenced from "${sourceDisplay}").`,
-            );
-          }
-          throw e;
-        }
-        const ext = (EXT_RE.exec(absRef)?.[1] ?? 'bin').toLowerCase();
-        return assetRegistry.emit(bytes, ext);
-      }),
-    );
-
-    let out = '';
-    let last = 0;
-    for (let i = 0; i < matches.length; i++) {
-      const m = matches[i];
-      out += css.slice(last, m.index);
-      out += replacements[i] == null ? m[0] : `url("${replacements[i]}")`;
-      last = m.index + m[0].length;
-    }
-    out += css.slice(last);
-    return out;
-  }
-
   async function processAll() {
     const jobResults = new Map();
     await Promise.all(
@@ -159,7 +97,15 @@ export function createStyleRegistry({
         }
         jobResults.set(
           job.absSrc,
-          await rewriteCss(raw, job.absSrc, job.importerDisplay),
+          await rewriteCssUrls({
+            css: raw,
+            sourceAbsPath: job.absSrc,
+            fs,
+            topDir,
+            assetRegistry,
+            notFoundMessage: (url, absRef) =>
+              `<Style>: url("${url}") not found at ${absRef} (referenced from "${job.importerDisplay}").`,
+          }),
         );
       }),
     );

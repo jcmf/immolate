@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { rewriteCssUrls } from './css-urls.js';
 
 const TOKEN_RE = /__IMMOLATE_ASSET_[a-f0-9]+__/g;
 const EXT_RE = /\.([a-z0-9]+)$/i;
@@ -165,6 +166,18 @@ export function createPlainAssetRegistry({
             );
           }
           throw e;
+        }
+        if (entry.ext === 'css') {
+          const rewritten = await rewriteCssUrls({
+            css: entry.bytes.toString('utf8'),
+            sourceAbsPath: entry.absSrc,
+            fs,
+            topDir,
+            assetRegistry,
+            notFoundMessage: (url, absRef) =>
+              `Asset url("${url}") not found at ${absRef} (referenced from "${displayPath(entry.absSrc)}").`,
+          });
+          entry.bytes = Buffer.from(rewritten, 'utf8');
         }
       }),
     );

@@ -265,6 +265,79 @@ test('<source src> and <audio src> are processed', async () => {
   assert.match(html, /<audio src="data:audio\/mpeg;base64,/);
 });
 
+test('CSS via plain <link> has its url() refs rewritten', async () => {
+  const fs = makeFs({
+    '/in/index.md': '<link rel="stylesheet" href="./main.css" />\n',
+    '/in/main.css': ".bg { background: url('./bg.png'); }",
+  });
+  await fs.promises.writeFile('/in/bg.png', bytes(8192));
+  await build({
+    inputDir: '/in',
+    outputDir: '/out',
+    topDir: '/in',
+    fs,
+    assetInlineThreshold: 0,
+  });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  const linkHref = html.match(/href="([^"]+)"/)[1];
+  const cssPath = linkHref.startsWith('/')
+    ? `/out${linkHref}`
+    : `/out/${linkHref}`;
+  const cssOut = await fs.promises.readFile(cssPath, 'utf8');
+  const urlMatch = cssOut.match(/url\("(\/_assets\/[a-f0-9]+\.png)"\)/);
+  assert.ok(urlMatch, `expected rewritten url in: ${cssOut}`);
+  const referenced = await fs.promises.stat(`/out${urlMatch[1]}`);
+  assert.equal(referenced.size, 8192);
+});
+
+test('CSS via plain <link> with topDir-absolute url() resolves against topDir', async () => {
+  const fs = makeFs({
+    '/in/index.md': '<link rel="stylesheet" href="/css/main.css" />\n',
+    '/in/css/main.css': ".bg { background: url('/img/hero.png'); }",
+  });
+  await fs.promises.mkdir('/in/img', { recursive: true });
+  await fs.promises.writeFile('/in/img/hero.png', bytes(8192));
+  await build({
+    inputDir: '/in',
+    outputDir: '/out',
+    topDir: '/in',
+    fs,
+    assetInlineThreshold: 0,
+  });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  const linkHref = html.match(/href="([^"]+)"/)[1];
+  const cssPath = linkHref.startsWith('/')
+    ? `/out${linkHref}`
+    : `/out/${linkHref}`;
+  const cssOut = await fs.promises.readFile(cssPath, 'utf8');
+  assert.match(cssOut, /url\("\/_assets\/[a-f0-9]+\.png"\)/);
+});
+
+test('inline CSS (data: URL) has its url() refs rewritten before encoding', async () => {
+  const fs = makeFs({
+    '/in/index.md': '<link rel="stylesheet" href="./main.css" />\n',
+    '/in/main.css': ".bg { background: url('./bg.png'); }",
+  });
+  await fs.promises.writeFile('/in/bg.png', bytes(8192));
+  await build({ inputDir: '/in', outputDir: '/out', topDir: '/in', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  const m = html.match(/href="data:text\/css;base64,([^"]+)"/);
+  assert.ok(m, `expected inline data: link in: ${html}`);
+  const decoded = Buffer.from(m[1], 'base64').toString('utf8');
+  assert.match(decoded, /url\("\/_assets\/[a-f0-9]+\.png"\)/);
+});
+
+test('CSS missing url() ref surfaces a clear error', async () => {
+  const fs = makeFs({
+    '/in/index.md': '<link rel="stylesheet" href="./main.css" />\n',
+    '/in/main.css': ".bg { background: url('./missing.png'); }",
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/in', outputDir: '/out', topDir: '/in', fs }),
+    /Asset url\("\.\/missing\.png"\) not found/,
+  );
+});
+
 test('respects assetInlineThreshold config', async () => {
   const fs = makeFs({
     '/in/index.md': '<img src="./mid.png" alt="m" />\n',
