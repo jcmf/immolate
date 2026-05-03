@@ -97,6 +97,7 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
     try {
       compiled = await compileJsxSource(source, {
         resolve: makeResolver(absPath),
+        asset: plainAssetRegistry?.forImporter(absPath),
       });
     } catch (e) {
       throw makeCompileError(displayPath(absPath), source, e);

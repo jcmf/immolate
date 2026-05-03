@@ -338,6 +338,37 @@ test('CSS missing url() ref surfaces a clear error', async () => {
   );
 });
 
+test('plain <img src> in a .jsx component goes through the asset pipeline', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      "import Pic from './pic.jsx';\n\n<Pic />\n",
+    '/in/pic.jsx':
+      "export default function Pic() {\n" +
+      "  return <img src='./tiny.png' alt='t' />;\n" +
+      "}\n",
+  });
+  await fs.promises.writeFile('/in/tiny.png', bytes(10));
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<img src="data:image\/png;base64,/);
+});
+
+test('escape hatch works inside .jsx', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      "import Pic from './pic.jsx';\n\n<Pic />\n",
+    '/in/pic.jsx':
+      "export default function Pic() {\n" +
+      "  return <img src='./big.png' alt='b' data-immolate-placement='inline' />;\n" +
+      "}\n",
+  });
+  await fs.promises.writeFile('/in/big.png', bytes(8192));
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<img src="data:image\/png;base64,/);
+  assert.doesNotMatch(html, /data-immolate-placement/);
+});
+
 test('respects assetInlineThreshold config', async () => {
   const fs = makeFs({
     '/in/index.md': '<img src="./mid.png" alt="m" />\n',

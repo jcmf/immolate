@@ -3,6 +3,7 @@ import jsxAcornPlugin from 'acorn-jsx';
 import { generate } from 'astring';
 import { buildJsx } from 'estree-util-build-jsx';
 import * as runtime from './jsx-runtime.js';
+import { recmaAssets } from './recma-assets.js';
 import { recmaImports } from './recma-imports.js';
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
@@ -207,6 +208,7 @@ async function defaultResolve(spec) {
 
 export async function compileJsxSource(source, options = {}) {
   const resolve = options.resolve ?? defaultResolve;
+  const asset = options.asset;
   const ast = ParserWithJsx.parse(source, {
     sourceType: 'module',
     ecmaVersion: 'latest',
@@ -217,10 +219,12 @@ export async function compileJsxSource(source, options = {}) {
   });
   transformModule(ast);
   recmaImports()(ast);
+  recmaAssets()(ast);
   const code = generate(ast);
   const fn = new AsyncFunction(code);
   return await fn({
     ...runtime,
     __immolate_resolve: resolve,
+    __immolate_asset: asset ?? ((value) => value),
   });
 }
