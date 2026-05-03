@@ -129,6 +129,31 @@ test('lint failure exits 1 before any build output is written', () => {
   assert.equal(nodeFs.existsSync(path.join(top, 'site')), false);
 });
 
+test('lint catches builtin misuse inside a .md layout', () => {
+  const top = setupTopDir('md-layout-builtin', {
+    'pages/index.md': '---\nlayout: default\n---\n\n# hi\n',
+    'layouts/default.md':
+      "import Style from 'immolate:style';\n\n" +
+      '<Style src="./style.css" />\n\n{children}\n',
+    'layouts/style.css': '.a {}',
+  });
+  const r = runCli(top);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /layouts\/default\.md/);
+  assert.match(r.stderr, /"immolate:style" has no default export/);
+});
+
+test('lint catches a typo in a .md file (parsed as MDX)', () => {
+  const top = setupTopDir('md-typo', {
+    'pages/index.md':
+      "import {Stlye} from 'immolate:style';\n\n# Hi\n",
+  });
+  const r = runCli(top);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /pages\/index\.md/);
+  assert.match(r.stderr, /"immolate:style" has no export named "Stlye"/);
+});
+
 test('lint catches builtin misuse in a .jsx component', () => {
   const top = setupTopDir('jsx-builtin-misuse', {
     'pages/index.mdx':

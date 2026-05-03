@@ -50,13 +50,19 @@ export function makeConfig() {
     {
       files: ['**/*.{md,mdx}'],
       plugins: { import: importPlugin, immolate: immolatePlugin },
+      languageOptions: {
+        parserOptions: { extensions: ['.md'] },
+      },
       settings: {
         'import/resolver': {
           node: { extensions: ['.js', '.jsx', '.mjs', '.cjs', '.md', '.mdx'] },
         },
         'import/ignore': IMMOLATE_IGNORE,
       },
-      rules: sharedRules,
+      rules: {
+        ...sharedRules,
+        'no-unused-expressions': 'off',
+      },
     },
   ];
 }
