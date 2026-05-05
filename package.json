@@ -21,7 +21,7 @@
   "author": "Jacques Frechet",
   "type": "module",
   "bin": {
-    "xtatic": "./src/cli.js"
+    "xtatic": "src/cli.js"
   },
   "files": [
     "src",
