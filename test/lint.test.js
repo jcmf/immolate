@@ -32,7 +32,7 @@ function runCli(top) {
 test('lint passes when imports are well-formed', () => {
   const top = setupTopDir('happy-path', {
     'pages/index.mdx':
-      "import {Style} from 'immolate:style';\n\n" +
+      "import {Style} from 'xtatic:style';\n\n" +
       '<Style src="/style.css" />\n\n# OK\n',
     'style.css': '.a {}',
   });
@@ -40,62 +40,62 @@ test('lint passes when imports are well-formed', () => {
   assert.equal(r.status, 0, r.stderr);
 });
 
-test('default import from immolate:style fails lint with a clear message', () => {
+test('default import from xtatic:style fails lint with a clear message', () => {
   const top = setupTopDir('default-import-style', {
     'pages/index.mdx':
-      "import Style from 'immolate:style';\n\n# Hi\n",
+      "import Style from 'xtatic:style';\n\n# Hi\n",
   });
   const r = runCli(top);
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /Lint failed/);
-  assert.match(r.stderr, /"immolate:style" has no default export/);
-  assert.match(r.stderr, /import \{Style\} from "immolate:style"/);
+  assert.match(r.stderr, /"xtatic:style" has no default export/);
+  assert.match(r.stderr, /import \{Style\} from "xtatic:style"/);
 });
 
-test('default import from immolate:image fails lint', () => {
+test('default import from xtatic:image fails lint', () => {
   const top = setupTopDir('default-import-image', {
     'pages/index.mdx':
-      "import Image from 'immolate:image';\n\n# Hi\n",
+      "import Image from 'xtatic:image';\n\n# Hi\n",
   });
   const r = runCli(top);
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /"immolate:image" has no default export/);
-  assert.match(r.stderr, /import \{Image\} from "immolate:image"/);
+  assert.match(r.stderr, /"xtatic:image" has no default export/);
+  assert.match(r.stderr, /import \{Image\} from "xtatic:image"/);
 });
 
-test('typo in named import from immolate:style is flagged', () => {
+test('typo in named import from xtatic:style is flagged', () => {
   const top = setupTopDir('typo-named', {
     'pages/index.mdx':
-      "import {Stlye} from 'immolate:style';\n\n# Hi\n",
+      "import {Stlye} from 'xtatic:style';\n\n# Hi\n",
   });
   const r = runCli(top);
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /"immolate:style" has no export named "Stlye"/);
+  assert.match(r.stderr, /"xtatic:style" has no export named "Stlye"/);
   assert.match(r.stderr, /Available: "Style"/);
 });
 
-test('unknown immolate:* spec is flagged with the available list', () => {
+test('unknown xtatic:* spec is flagged with the available list', () => {
   const top = setupTopDir('unknown-spec', {
     'pages/index.mdx':
-      "import {x} from 'immolate:nope';\n\n# Hi\n",
+      "import {x} from 'xtatic:nope';\n\n# Hi\n",
   });
   const r = runCli(top);
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /Unknown immolate builtin module "immolate:nope"/);
+  assert.match(r.stderr, /Unknown xtatic builtin module "xtatic:nope"/);
   assert.match(
     r.stderr,
-    /Available: "immolate:builtins", "immolate:image", "immolate:style"/,
+    /Available: "xtatic:builtins", "xtatic:image", "xtatic:style"/,
   );
 });
 
-test('namespace import from immolate:* is flagged', () => {
+test('namespace import from xtatic:* is flagged', () => {
   const top = setupTopDir('namespace-import', {
     'pages/index.mdx':
-      "import * as S from 'immolate:style';\n\n# Hi\n",
+      "import * as S from 'xtatic:style';\n\n# Hi\n",
   });
   const r = runCli(top);
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /Namespace import from "immolate:style" is unsupported/);
+  assert.match(r.stderr, /Namespace import from "xtatic:style" is unsupported/);
 });
 
 test('importing a non-existent relative path is flagged', () => {
@@ -122,7 +122,7 @@ test('idiomatic default import from .mdx is allowed', () => {
 test('lint failure exits 1 before any build output is written', () => {
   const top = setupTopDir('no-build-on-lint-fail', {
     'pages/index.mdx':
-      "import Style from 'immolate:style';\n\n# Hi\n",
+      "import Style from 'xtatic:style';\n\n# Hi\n",
   });
   const r = runCli(top);
   assert.notEqual(r.status, 0);
@@ -133,25 +133,25 @@ test('lint catches builtin misuse inside a .md layout', () => {
   const top = setupTopDir('md-layout-builtin', {
     'pages/index.md': '---\nlayout: default\n---\n\n# hi\n',
     'layouts/default.md':
-      "import Style from 'immolate:style';\n\n" +
+      "import Style from 'xtatic:style';\n\n" +
       '<Style src="./style.css" />\n\n{children}\n',
     'layouts/style.css': '.a {}',
   });
   const r = runCli(top);
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /layouts\/default\.md/);
-  assert.match(r.stderr, /"immolate:style" has no default export/);
+  assert.match(r.stderr, /"xtatic:style" has no default export/);
 });
 
 test('lint catches a typo in a .md file (parsed as MDX)', () => {
   const top = setupTopDir('md-typo', {
     'pages/index.md':
-      "import {Stlye} from 'immolate:style';\n\n# Hi\n",
+      "import {Stlye} from 'xtatic:style';\n\n# Hi\n",
   });
   const r = runCli(top);
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /pages\/index\.md/);
-  assert.match(r.stderr, /"immolate:style" has no export named "Stlye"/);
+  assert.match(r.stderr, /"xtatic:style" has no export named "Stlye"/);
 });
 
 test('lint catches builtin misuse in a .jsx component', () => {
@@ -159,10 +159,10 @@ test('lint catches builtin misuse in a .jsx component', () => {
     'pages/index.mdx':
       "import Hero from './hero.jsx';\n\n# r\n\n<Hero />\n",
     'pages/hero.jsx':
-      "import Image from 'immolate:image';\n" +
+      "import Image from 'xtatic:image';\n" +
       'export default function Hero() { return <Image src="./x.png" alt="x" />; }\n',
   });
   const r = runCli(top);
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /"immolate:image" has no default export/);
+  assert.match(r.stderr, /"xtatic:image" has no default export/);
 });

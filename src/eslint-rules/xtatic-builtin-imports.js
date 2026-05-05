@@ -1,6 +1,6 @@
 import { BUILTIN_EXPORTS, BUILTIN_SPECS } from '../builtins-registry.js';
 
-const SCHEME_RE = /^immolate:/;
+const SCHEME_RE = /^xtatic:/;
 
 function listSpecs() {
   return BUILTIN_SPECS.map((s) => `"${s}"`).join(', ');
@@ -15,12 +15,12 @@ export default {
     type: 'problem',
     docs: {
       description:
-        'Validate imports from immolate:* builtin modules against the known export registry',
+        'Validate imports from xtatic:* builtin modules against the known export registry',
     },
     schema: [],
     messages: {
       unknownSpec:
-        'Unknown immolate builtin module "{{spec}}". Available: {{available}}.',
+        'Unknown xtatic builtin module "{{spec}}". Available: {{available}}.',
       defaultImport:
         '"{{spec}}" has no default export. Use `import {{exportList}} from "{{spec}}"` instead.',
       namespaceImport:

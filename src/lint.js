@@ -5,21 +5,21 @@ import importPlugin from 'eslint-plugin-import';
 import { flat as mdxFlat } from 'eslint-plugin-mdx';
 import globals from 'globals';
 import { BUILTIN_SPECS } from './builtins-registry.js';
-import immolateBuiltinImports from './eslint-rules/immolate-builtin-imports.js';
+import xtaticBuiltinImports from './eslint-rules/xtatic-builtin-imports.js';
 
 const SOURCE_EXT_RE = /\.(mdx?|jsx?)$/i;
-const IMMOLATE_IGNORE = BUILTIN_SPECS.map((s) => `^${s}$`);
+const XTATIC_IGNORE = BUILTIN_SPECS.map((s) => `^${s}$`);
 
-const immolatePlugin = {
-  rules: { 'builtin-imports': immolateBuiltinImports },
+const xtaticPlugin = {
+  rules: { 'builtin-imports': xtaticBuiltinImports },
 };
 
 export function makeConfig() {
   const sharedRules = {
-    'import/no-unresolved': ['error', { ignore: ['^immolate:'] }],
+    'import/no-unresolved': ['error', { ignore: ['^xtatic:'] }],
     'import/named': 'error',
     'import/no-duplicates': 'error',
-    'immolate/builtin-imports': 'error',
+    'xtatic/builtin-imports': 'error',
   };
   return [
     {
@@ -27,7 +27,7 @@ export function makeConfig() {
     },
     {
       files: ['**/*.{js,mjs,cjs,jsx}'],
-      plugins: { import: importPlugin, immolate: immolatePlugin },
+      plugins: { import: importPlugin, xtatic: xtaticPlugin },
       languageOptions: {
         ecmaVersion: 2022,
         sourceType: 'module',
@@ -38,7 +38,7 @@ export function makeConfig() {
         'import/resolver': {
           node: { extensions: ['.js', '.jsx', '.mjs', '.cjs'] },
         },
-        'import/ignore': IMMOLATE_IGNORE,
+        'import/ignore': XTATIC_IGNORE,
       },
       rules: {
         ...sharedRules,
@@ -49,7 +49,7 @@ export function makeConfig() {
     mdxFlat,
     {
       files: ['**/*.{md,mdx}'],
-      plugins: { import: importPlugin, immolate: immolatePlugin },
+      plugins: { import: importPlugin, xtatic: xtaticPlugin },
       languageOptions: {
         parserOptions: { extensions: ['.md'] },
       },
@@ -57,7 +57,7 @@ export function makeConfig() {
         'import/resolver': {
           node: { extensions: ['.js', '.jsx', '.mjs', '.cjs', '.md', '.mdx'] },
         },
-        'import/ignore': IMMOLATE_IGNORE,
+        'import/ignore': XTATIC_IGNORE,
       },
       rules: {
         ...sharedRules,

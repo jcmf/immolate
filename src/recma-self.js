@@ -2,8 +2,8 @@
 // frontmatter, named exports, etc.) accessible as bare identifiers inside JSX
 // expressions. It scope-analyzes `_createMdxContent`, collects identifiers
 // that aren't bound anywhere up the chain (and aren't well-known globals),
-// and prepends `const { … } = props.__immolate_self ?? {};` to the function
-// body. The registry sets `props.__immolate_self = mm` at render call time.
+// and prepends `const { … } = props.__xtatic_self ?? {};` to the function
+// body. The registry sets `props.__xtatic_self = mm` at render call time.
 
 const GLOBALS = new Set([
   'globalThis', 'undefined', 'NaN', 'Infinity', 'arguments', 'this',
@@ -234,7 +234,7 @@ function buildSelfDestructure(names) {
           left: {
             type: 'MemberExpression',
             object: id('props'),
-            property: id('__immolate_self'),
+            property: id('__xtatic_self'),
             computed: false,
             optional: false,
           },

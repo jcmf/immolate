@@ -3,7 +3,7 @@ import path from 'node:path';
 import { rewriteCssUrls } from './css-urls.js';
 
 const DEFAULT_INLINE_THRESHOLD = 2048;
-const TOKEN_RE = /__IMMOLATE_STYLE_[a-f0-9]+__/g;
+const TOKEN_RE = /__XTATIC_STYLE_[a-f0-9]+__/g;
 
 function escAttr(s) {
   return String(s)
@@ -30,7 +30,7 @@ function renderAttrString(attrs) {
 }
 
 function makeToken() {
-  return `__IMMOLATE_STYLE_${crypto.randomBytes(12).toString('hex')}__`;
+  return `__XTATIC_STYLE_${crypto.randomBytes(12).toString('hex')}__`;
 }
 
 export function createStyleRegistry({

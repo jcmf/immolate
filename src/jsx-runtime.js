@@ -8,7 +8,7 @@ const ATTR_RENAME = {
   htmlFor: 'for',
 };
 
-export const Fragment = Symbol('immolate.Fragment');
+export const Fragment = Symbol('xtatic.Fragment');
 
 function escapeText(value) {
   return String(value)

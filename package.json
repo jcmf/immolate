@@ -1,10 +1,10 @@
 {
-  "name": "immolate",
+  "name": "xtatic",
   "version": "0.1.0",
   "description": "Static site generator that compiles MDX to HTML by executing it at build time.",
   "type": "module",
   "bin": {
-    "immolate": "./src/cli.js"
+    "xtatic": "./src/cli.js"
   },
   "scripts": {
     "test": "node --test"

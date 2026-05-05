@@ -9,7 +9,7 @@ import { recmaImports } from './recma-imports.js';
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const ParserWithJsx = Parser.extend(jsxAcornPlugin());
 
-const JSX_RUNTIME_IMPORT_SOURCE = '__immolate_internal_jsx_runtime';
+const JSX_RUNTIME_IMPORT_SOURCE = '__xtatic_internal_jsx_runtime';
 const JSX_RUNTIME_IMPORT = `${JSX_RUNTIME_IMPORT_SOURCE}/jsx-runtime`;
 
 function id(name) {
@@ -116,7 +116,7 @@ function transformModule(ast) {
         }
         continue;
       }
-      newBody.push(...expandUserImport(node, () => `__immolate_ns_${nsCounter++}`));
+      newBody.push(...expandUserImport(node, () => `__xtatic_ns_${nsCounter++}`));
       continue;
     }
     if (node.type === 'ExportDefaultDeclaration') {
@@ -128,7 +128,7 @@ function transformModule(ast) {
         newBody.push(decl);
         exportProps.push(aliasProp('default', decl.id.name));
       } else {
-        const local = `__immolate_default_${nsCounter++}`;
+        const local = `__xtatic_default_${nsCounter++}`;
         newBody.push(constDecl(id(local), decl));
         exportProps.push(aliasProp('default', local));
       }
@@ -224,7 +224,7 @@ export async function compileJsxSource(source, options = {}) {
   const fn = new AsyncFunction(code);
   return await fn({
     ...runtime,
-    __immolate_resolve: resolve,
-    __immolate_asset: asset ?? ((value) => value),
+    __xtatic_resolve: resolve,
+    __xtatic_asset: asset ?? ((value) => value),
   });
 }

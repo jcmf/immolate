@@ -22,7 +22,7 @@ test('inlines as data URL when output is below inlineThreshold', async () => {
   const png = await makePng(2, 2);
   const fs = makeFs({
     '/in/index.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '<Image src="./dot.png" alt="dot" inlineThreshold={1000000} />\n',
   });
   await fs.promises.writeFile('/in/dot.png', png);
@@ -36,7 +36,7 @@ test('emits a content-addressed file when output is above inlineThreshold', asyn
   const png = await makePng(8, 8);
   const fs = makeFs({
     '/in/index.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '<Image src="./dot.png" alt="d" inlineThreshold={0} />\n',
   });
   await fs.promises.writeFile('/in/dot.png', png);
@@ -53,7 +53,7 @@ test('emits width and height attrs computed from the processed image', async () 
   const png = await makePng(8, 4);
   const fs = makeFs({
     '/in/index.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '<Image src="./r.png" alt="r" inlineThreshold={1000000} />\n',
   });
   await fs.promises.writeFile('/in/r.png', png);
@@ -67,7 +67,7 @@ test('user-specified width resizes with aspect ratio preserved', async () => {
   const png = await makePng(40, 20);
   const fs = makeFs({
     '/in/index.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '<Image src="./r.png" alt="r" width={20} inlineThreshold={1000000} />\n',
   });
   await fs.promises.writeFile('/in/r.png', png);
@@ -81,7 +81,7 @@ test('does not enlarge an image past its source dimensions', async () => {
   const png = await makePng(8, 8);
   const fs = makeFs({
     '/in/index.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '<Image src="./small.png" alt="s" width={1000} inlineThreshold={1000000} />\n',
   });
   await fs.promises.writeFile('/in/small.png', png);
@@ -95,10 +95,10 @@ test('two pages using the same image+opts emit only one asset file', async () =>
   const png = await makePng(8, 8);
   const fs = makeFs({
     '/in/index.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '# r\n\n<Image src="/shared.png" alt="x" inlineThreshold={0} />\n',
     '/in/other.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '# o\n\n<Image src="/shared.png" alt="x" inlineThreshold={0} />\n',
   });
   await fs.promises.writeFile('/in/shared.png', png);
@@ -116,7 +116,7 @@ test('different processing opts on the same source emit separate jobs', async ()
   const png = await makePng(40, 40);
   const fs = makeFs({
     '/in/index.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '<Image src="./a.png" alt="a" width={10} inlineThreshold={0} />\n' +
       '<Image src="./a.png" alt="a" width={20} inlineThreshold={0} />\n',
   });
@@ -130,7 +130,7 @@ test('missing alt is rejected with a clear error', async () => {
   const png = await makePng(2, 2);
   const fs = makeFs({
     '/in/index.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '<Image src="./dot.png" />\n',
   });
   await fs.promises.writeFile('/in/dot.png', png);
@@ -144,7 +144,7 @@ test('alt="" is allowed for decorative images', async () => {
   const png = await makePng(2, 2);
   const fs = makeFs({
     '/in/index.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '<Image src="./dot.png" alt="" inlineThreshold={1000000} />\n',
   });
   await fs.promises.writeFile('/in/dot.png', png);
@@ -156,7 +156,7 @@ test('alt="" is allowed for decorative images', async () => {
 test('SVG sources are passed through verbatim, not rasterized', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '<Image src="./icon.svg" alt="i" inlineThreshold={0} />\n',
     '/in/icon.svg': SVG_FIXTURE,
   });
@@ -172,7 +172,7 @@ test('format option switches the encoder', async () => {
   const png = await makePng(8, 8);
   const fs = makeFs({
     '/in/index.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '<Image src="./d.png" alt="d" format="webp" inlineThreshold={0} />\n',
   });
   await fs.promises.writeFile('/in/d.png', png);
@@ -185,7 +185,7 @@ test('an invalid format is rejected', async () => {
   const png = await makePng(2, 2);
   const fs = makeFs({
     '/in/index.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '<Image src="./d.png" alt="d" format="bmp" />\n',
   });
   await fs.promises.writeFile('/in/d.png', png);
@@ -198,7 +198,7 @@ test('an invalid format is rejected', async () => {
 test('format is not allowed on SVG sources', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '<Image src="./i.svg" alt="i" format="avif" />\n',
     '/in/i.svg': SVG_FIXTURE,
   });
@@ -212,7 +212,7 @@ test('pass-through attrs survive: className → class, loading, decoding', async
   const png = await makePng(2, 2);
   const fs = makeFs({
     '/in/index.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '<Image src="./d.png" alt="d" className="hero" loading="lazy" decoding="async" inlineThreshold={1000000} />\n',
   });
   await fs.promises.writeFile('/in/d.png', png);
@@ -227,7 +227,7 @@ test('imageInlineThreshold build option sets the project-wide default', async ()
   const png = await makePng(8, 8);
   const fs = makeFs({
     '/in/index.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '<Image src="./d.png" alt="d" />\n',
   });
   await fs.promises.writeFile('/in/d.png', png);
@@ -244,7 +244,7 @@ test('imageInlineThreshold build option sets the project-wide default', async ()
 test('a missing image source surfaces a clear error', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '<Image src="./missing.png" alt="x" />\n',
   });
   await assert.rejects(
@@ -259,7 +259,7 @@ test('Image works when imported from a .jsx component', async () => {
     '/in/index.md':
       "import Hero from './hero.jsx';\n\n# r\n\n<Hero />\n",
     '/in/hero.jsx':
-      "import {Image} from 'immolate:image';\n" +
+      "import {Image} from 'xtatic:image';\n" +
       'export default function Hero() {\n' +
       '  return <Image src="./pic.png" alt="hero" inlineThreshold={1000000} />;\n' +
       '}\n',
@@ -271,13 +271,13 @@ test('Image works when imported from a .jsx component', async () => {
   assert.match(html, /alt="hero"/);
 });
 
-test('importing immolate:foo errors with the available list', async () => {
+test('importing xtatic:foo errors with the available list', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {x} from 'immolate:foo';\n\n# r\n",
+      "import {x} from 'xtatic:foo';\n\n# r\n",
   });
   await assert.rejects(
     () => build({ inputDir: '/in', outputDir: '/out', fs }),
-    /Unknown builtin module "immolate:foo".*"immolate:builtins", "immolate:image"/s,
+    /Unknown builtin module "xtatic:foo".*"xtatic:builtins", "xtatic:image"/s,
   );
 });

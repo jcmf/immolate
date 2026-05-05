@@ -5,7 +5,7 @@ const DEFAULT_INLINE_THRESHOLD = 8192;
 const VALID_FORMATS = new Set(['avif', 'webp', 'jpeg', 'jpg', 'png']);
 const FIT_VALUES = new Set(['cover', 'contain', 'fill', 'inside', 'outside']);
 const SVG_RE = /\.svg$/i;
-const TOKEN_RE = /__IMMOLATE_IMG_[a-f0-9]+__/g;
+const TOKEN_RE = /__XTATIC_IMG_[a-f0-9]+__/g;
 
 const MIME = {
   avif: 'image/avif',
@@ -55,7 +55,7 @@ function renderAttrString(attrs) {
 }
 
 function makeToken() {
-  return `__IMMOLATE_IMG_${crypto.randomBytes(12).toString('hex')}__`;
+  return `__XTATIC_IMG_${crypto.randomBytes(12).toString('hex')}__`;
 }
 
 export function createImageRegistry({

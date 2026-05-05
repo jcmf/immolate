@@ -1,4 +1,4 @@
-# immolate
+# xtatic
 
 A small static-site generator: MDX in, plain HTML out. The MDX is compiled and executed at build time, so the output is just HTML — no client-side runtime, no hydration.
 
@@ -9,13 +9,13 @@ npm install
 node src/cli.js [TOP_DIR]
 ```
 
-`TOP_DIR` defaults to the current directory. By default, immolate walks `TOP_DIR/pages/**/*.{md,mdx}` and writes to `TOP_DIR/site/`.
+`TOP_DIR` defaults to the current directory. By default, xtatic walks `TOP_DIR/pages/**/*.{md,mdx}` and writes to `TOP_DIR/site/`.
 
-To override the input or output location, add an `immolate` section to `TOP_DIR/package.json`:
+To override the input or output location, add an `xtatic` section to `TOP_DIR/package.json`:
 
 ```json
 {
-  "immolate": {
+  "xtatic": {
     "inputDir": "src/pages",
     "outputDir": "dist",
     "layoutsDir": "src/layouts"
@@ -25,11 +25,11 @@ To override the input or output location, add an `immolate` section to `TOP_DIR/
 
 Relative paths in config are resolved against `TOP_DIR`, not the working directory; absolute paths are used as-is.
 
-`OUTPUT_DIR` is wiped at the start of every build so that renames and deletions can't leave stale files behind. Don't point it at a directory that holds anything you want to keep, and don't hand-edit files inside it — anything you put there will be erased on the next run. As a guard against catastrophic misconfiguration, immolate refuses to build if `outputDir` is `/`, equal to a source directory, or an ancestor of `topDir`/`inputDir`/`layoutsDir`.
+`OUTPUT_DIR` is wiped at the start of every build so that renames and deletions can't leave stale files behind. Don't point it at a directory that holds anything you want to keep, and don't hand-edit files inside it — anything you put there will be erased on the next run. As a guard against catastrophic misconfiguration, xtatic refuses to build if `outputDir` is `/`, equal to a source directory, or an ancestor of `topDir`/`inputDir`/`layoutsDir`.
 
 ## How input maps to output
 
-`immolate` walks `INPUT_DIR/**/*.{md,mdx}`. Each file becomes `OUTPUT_DIR/<path>/index.html`. The four forms below are **equivalent and mutually exclusive** — putting two of them in the same input tree is an error:
+`xtatic` walks `INPUT_DIR/**/*.{md,mdx}`. Each file becomes `OUTPUT_DIR/<path>/index.html`. The four forms below are **equivalent and mutually exclusive** — putting two of them in the same input tree is an error:
 
 | Input                                | Output                            |
 | ------------------------------------ | --------------------------------- |
@@ -42,7 +42,7 @@ Relative paths in config are resolved against `TOP_DIR`, not the working directo
 
 ## Pages
 
-Markdown is rendered normally. JSX inside MDX is evaluated against immolate's JSX runtime, which produces HTML strings directly — no React, no virtual DOM.
+Markdown is rendered normally. JSX inside MDX is evaluated against xtatic's JSX runtime, which produces HTML strings directly — no React, no virtual DOM.
 
 Frontmatter and named exports become metadata on the compiled module:
 
@@ -84,8 +84,8 @@ A layout wraps another module's content. It's just an MDX module whose `default`
 
 A module gets a layout in one of two ways:
 
-1. **Explicit**: set `layout: <name>` in frontmatter (or as a named export). The string is treated as a path relative to `LAYOUTS_DIR` (default: `TOP_DIR/layouts`, configurable via `immolate.layoutsDir` in `package.json`). The `.md`/`.mdx` suffix is optional; with no suffix `.mdx` is preferred. Subpaths work: `layout: posts/article`.
-2. **Inherited via `defaultLayout`**: if `layout` isn't set, immolate walks from the module up to the root looking for a `defaultLayout`, and uses the first one it finds. The walk starts at the module itself, so a module's own `defaultLayout` applies to it. Set `defaultLayout` on the root to give every page a default; set it on a subdirectory's `index.md` to override for that subtree.
+1. **Explicit**: set `layout: <name>` in frontmatter (or as a named export). The string is treated as a path relative to `LAYOUTS_DIR` (default: `TOP_DIR/layouts`, configurable via `xtatic.layoutsDir` in `package.json`). The `.md`/`.mdx` suffix is optional; with no suffix `.mdx` is preferred. Subpaths work: `layout: posts/article`.
+2. **Inherited via `defaultLayout`**: if `layout` isn't set, xtatic walks from the module up to the root looking for a `defaultLayout`, and uses the first one it finds. The walk starts at the module itself, so a module's own `defaultLayout` applies to it. Set `defaultLayout` on the root to give every page a default; set it on a subdirectory's `index.md` to override for that subtree.
 
 Layouts loaded by name can themselves declare `layout:` (or `defaultLayout:`) for nesting. You can also set `layout` directly to a module object via `import`, bypassing the layoutsDir lookup.
 
@@ -132,10 +132,10 @@ Imports with bare specifiers (`import x from 'react'`), unknown extensions, or p
 
 ## Builtins
 
-A small set of helpers ship with immolate. Like Node's `node:*` modules, they're exposed under an `immolate:` scheme and must be imported explicitly:
+A small set of helpers ship with xtatic. Like Node's `node:*` modules, they're exposed under an `xtatic:` scheme and must be imported explicitly:
 
 ```mdx
-import {html, readfile} from 'immolate:builtins';
+import {html, readfile} from 'xtatic:builtins';
 
 {html('<!DOCTYPE html>')}
 
@@ -147,14 +147,14 @@ Available named exports:
 - `html(s)` — wrap a string so the JSX runtime emits it raw, without HTML-escaping. Useful for doctypes, inline SVG, or any time you've already got trusted markup.
 - `readfile(spec)` — synchronously read a file as UTF-8 at build time. Specs starting with `/` resolve against `TOP_DIR`; everything else resolves against the importing file's directory. Throws a clear error if the file is missing.
 
-Importing from `immolate:builtins` works identically in `.md`, `.mdx`, and `.jsx` files. Names you don't import don't shadow anything, so you're free to define a local `html` or `readfile` of your own.
+Importing from `xtatic:builtins` works identically in `.md`, `.mdx`, and `.jsx` files. Names you don't import don't shadow anything, so you're free to define a local `html` or `readfile` of your own.
 
 ### `<Image>`
 
-`immolate:image` exports a build-time image component. It reads a source image, processes it with [sharp](https://sharp.pixelplumbing.com/), and emits an `<img>` tag whose `src` is either a `data:` URL (for small outputs) or a content-addressed file under `OUTPUT_DIR/_assets/`.
+`xtatic:image` exports a build-time image component. It reads a source image, processes it with [sharp](https://sharp.pixelplumbing.com/), and emits an `<img>` tag whose `src` is either a `data:` URL (for small outputs) or a content-addressed file under `OUTPUT_DIR/_assets/`.
 
 ```mdx
-import {Image} from 'immolate:image';
+import {Image} from 'xtatic:image';
 
 <Image src="./hero.jpg" alt="Sunset over the bay" width={1200} />
 ```
@@ -169,7 +169,7 @@ import {Image} from 'immolate:image';
 - `format` — `'avif'` (default), `'webp'`, `'jpeg'`, `'png'`. SVG sources are passed through unchanged; specifying a format on an SVG is an error.
 - `quality` — encoder quality (sharp's per-format defaults if unset).
 - `fit` — sharp fit mode: `'cover' | 'contain' | 'fill' | 'inside' | 'outside'`. Default `'inside'`.
-- `inlineThreshold` — bytes. Outputs at or below this size are inlined as `data:` URLs; outputs above it are written to `OUTPUT_DIR/_assets/<hash>.<ext>` and referenced by absolute URL. Defaults to **8192 bytes**, configurable project-wide via `package.json` `immolate.imageInlineThreshold`.
+- `inlineThreshold` — bytes. Outputs at or below this size are inlined as `data:` URLs; outputs above it are written to `OUTPUT_DIR/_assets/<hash>.<ext>` and referenced by absolute URL. Defaults to **8192 bytes**, configurable project-wide via `package.json` `xtatic.imageInlineThreshold`.
 
 **Behavior baked in by default:**
 
@@ -183,10 +183,10 @@ Single-output-per-call only for now — `<picture>`/`srcset` for responsive imag
 
 ### `<Style>`
 
-`immolate:style` exports a build-time stylesheet component. It reads a CSS file, rewrites any `url(...)` references to point at hashed copies of the referenced assets, and emits either a `<style>` block (for small CSS) or a `<link rel="stylesheet">` pointing at a content-addressed file under `OUTPUT_DIR/_assets/`.
+`xtatic:style` exports a build-time stylesheet component. It reads a CSS file, rewrites any `url(...)` references to point at hashed copies of the referenced assets, and emits either a `<style>` block (for small CSS) or a `<link rel="stylesheet">` pointing at a content-addressed file under `OUTPUT_DIR/_assets/`.
 
 ```mdx
-import {Style} from 'immolate:style';
+import {Style} from 'xtatic:style';
 
 <Style src="/css/main.css" />
 ```
@@ -194,7 +194,7 @@ import {Style} from 'immolate:style';
 **Props:**
 
 - `src` (required) — path to the source CSS file. Same resolution rules as `<Image>`: `/foo` is rooted at `TOP_DIR`, anything else is relative to the importing file.
-- `inlineThreshold` — bytes. CSS at or below this size is emitted inline as `<style>...</style>`; above, it goes to `OUTPUT_DIR/_assets/<hash>.css` and the call site gets a `<link>` instead. Defaults to **2048 bytes**, configurable project-wide via `package.json` `immolate.styleInlineThreshold`.
+- `inlineThreshold` — bytes. CSS at or below this size is emitted inline as `<style>...</style>`; above, it goes to `OUTPUT_DIR/_assets/<hash>.css` and the call site gets a `<link>` instead. Defaults to **2048 bytes**, configurable project-wide via `package.json` `xtatic.styleInlineThreshold`.
 
 **`url()` rewriting.** Any `url(...)` token inside the CSS — `background-image`, `@font-face src`, `cursor`, etc. — is resolved relative to the source CSS file's directory (or against `TOP_DIR` for `/`-rooted paths), the referenced bytes are hashed, and the URL is rewritten to `/_assets/<hash>.<ext>`. URLs starting with `data:`, `http://`, `https://`, `//`, or `#` (SVG fragment refs like `clip-path: url(#mask)`) are passed through unchanged. Identical references across multiple CSS files share a single asset file.
 
@@ -204,15 +204,15 @@ Any extra props (`media`, `nonce`, `crossorigin`, `id`, `data-*`, etc.) pass thr
 
 ## Lint
 
-`immolate` runs ESLint over your `.md`/`.mdx`/`.jsx`/`.js` files automatically before each build, with an opinionated zero-config baseline focused on catching import bugs early — typo'd named imports, missing files, default-vs-named confusion on the `immolate:*` builtins. A lint failure exits 1 with the formatted ESLint output before any HTML is written.
+`xtatic` runs ESLint over your `.md`/`.mdx`/`.jsx`/`.js` files automatically before each build, with an opinionated zero-config baseline focused on catching import bugs early — typo'd named imports, missing files, default-vs-named confusion on the `xtatic:*` builtins. A lint failure exits 1 with the formatted ESLint output before any HTML is written.
 
 **What's checked:**
 
 - `import/no-unresolved` — flags imports of files that don't exist on disk.
 - `import/named` — flags `import {Foo}` when `Foo` isn't actually exported.
 - `import/no-duplicates` — flags two `import` statements for the same module.
-- `immolate/builtin-imports` — flags default imports, namespace imports, and unknown export names against `immolate:builtins`/`immolate:image`/`immolate:style`. Errors carry the suggested fix (e.g. *"`immolate:style` has no default export. Use `import {Style} from 'immolate:style'` instead."*).
-- `import/default` and `no-undef` — applied to `.js`/`.jsx` only. Off for `.md`/`.mdx` because immolate's default-import semantics there bind the whole module object rather than `mm.default` (a deliberate divergence from ESM).
+- `xtatic/builtin-imports` — flags default imports, namespace imports, and unknown export names against `xtatic:builtins`/`xtatic:image`/`xtatic:style`. Errors carry the suggested fix (e.g. *"`xtatic:style` has no default export. Use `import {Style} from 'xtatic:style'` instead."*).
+- `import/default` and `no-undef` — applied to `.js`/`.jsx` only. Off for `.md`/`.mdx` because xtatic's default-import semantics there bind the whole module object rather than `mm.default` (a deliberate divergence from ESM).
 
 The config is currently frozen — no user override knob yet; that's a planned follow-up. `eslint`, `eslint-plugin-import`, and `eslint-plugin-mdx` are hard runtime dependencies, so there's nothing to install.
 

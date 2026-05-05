@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { rewriteCssUrls } from './css-urls.js';
 
-const TOKEN_RE = /__IMMOLATE_ASSET_[a-f0-9]+__/g;
+const TOKEN_RE = /__XTATIC_ASSET_[a-f0-9]+__/g;
 const EXT_RE = /\.([a-z0-9]+)$/i;
 const VALID_PLACEMENTS = new Set(['inline', 'shared', 'co-located', 'auto']);
 
@@ -33,7 +33,7 @@ const MIME = {
 };
 
 function makeToken() {
-  return `__IMMOLATE_ASSET_${crypto.randomBytes(12).toString('hex')}__`;
+  return `__XTATIC_ASSET_${crypto.randomBytes(12).toString('hex')}__`;
 }
 
 function isPassthroughUrl(s) {

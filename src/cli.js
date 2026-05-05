@@ -8,7 +8,7 @@ import { runLint } from './lint.js';
 
 const args = process.argv.slice(2);
 if (args.length > 1) {
-  console.error('Usage: immolate [top_dir]');
+  console.error('Usage: xtatic [top_dir]');
   process.exit(1);
 }
 
@@ -24,18 +24,18 @@ let assetInlineThreshold;
 const pkgPath = path.join(topDir, 'package.json');
 if (fs.existsSync(pkgPath)) {
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-  if (pkg.immolate?.inputDir) inputDir = pkg.immolate.inputDir;
-  if (pkg.immolate?.outputDir) outputDir = pkg.immolate.outputDir;
-  if (pkg.immolate?.layoutsDir) layoutsDir = pkg.immolate.layoutsDir;
-  if (pkg.immolate?.remarkPlugins) remarkPluginSpecs = pkg.immolate.remarkPlugins;
-  if (typeof pkg.immolate?.imageInlineThreshold === 'number') {
-    imageInlineThreshold = pkg.immolate.imageInlineThreshold;
+  if (pkg.xtatic?.inputDir) inputDir = pkg.xtatic.inputDir;
+  if (pkg.xtatic?.outputDir) outputDir = pkg.xtatic.outputDir;
+  if (pkg.xtatic?.layoutsDir) layoutsDir = pkg.xtatic.layoutsDir;
+  if (pkg.xtatic?.remarkPlugins) remarkPluginSpecs = pkg.xtatic.remarkPlugins;
+  if (typeof pkg.xtatic?.imageInlineThreshold === 'number') {
+    imageInlineThreshold = pkg.xtatic.imageInlineThreshold;
   }
-  if (typeof pkg.immolate?.styleInlineThreshold === 'number') {
-    styleInlineThreshold = pkg.immolate.styleInlineThreshold;
+  if (typeof pkg.xtatic?.styleInlineThreshold === 'number') {
+    styleInlineThreshold = pkg.xtatic.styleInlineThreshold;
   }
-  if (typeof pkg.immolate?.assetInlineThreshold === 'number') {
-    assetInlineThreshold = pkg.immolate.assetInlineThreshold;
+  if (typeof pkg.xtatic?.assetInlineThreshold === 'number') {
+    assetInlineThreshold = pkg.xtatic.assetInlineThreshold;
   }
 }
 
@@ -46,7 +46,7 @@ layoutsDir = path.resolve(topDir, layoutsDir);
 async function loadRemarkPlugins(specs) {
   if (!Array.isArray(specs)) {
     throw new Error(
-      `immolate.remarkPlugins must be an array; got ${typeof specs}.`,
+      `xtatic.remarkPlugins must be an array; got ${typeof specs}.`,
     );
   }
   const require = createRequire(path.join(topDir, 'package.json'));
@@ -63,7 +63,7 @@ async function loadRemarkPlugins(specs) {
       [name, opts] = spec;
     } else {
       throw new Error(
-        `immolate.remarkPlugins entries must be a string or [name, options] tuple; got ${JSON.stringify(spec)}.`,
+        `xtatic.remarkPlugins entries must be a string or [name, options] tuple; got ${JSON.stringify(spec)}.`,
       );
     }
     let resolved;
@@ -101,8 +101,8 @@ try {
     fs,
   });
 } catch (e) {
-  if (process.env.IMMOLATE_DEBUG) throw e;
+  if (process.env.XTATIC_DEBUG) throw e;
   console.error(e.message);
-  console.error('\n(set IMMOLATE_DEBUG=1 for the full stack)');
+  console.error('\n(set XTATIC_DEBUG=1 for the full stack)');
   process.exit(1);
 }

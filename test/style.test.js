@@ -10,7 +10,7 @@ function makeFs(files) {
 test('inlines as <style> when CSS is below the inline threshold', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {Style} from 'immolate:style';\n\n" +
+      "import {Style} from 'xtatic:style';\n\n" +
       '<Style src="./tiny.css" />\n',
     '/in/tiny.css': '.a { color: red; }',
   });
@@ -23,7 +23,7 @@ test('emits a content-addressed file and <link> when CSS is above the threshold'
   const css = '.b { color: blue; }';
   const fs = makeFs({
     '/in/index.md':
-      "import {Style} from 'immolate:style';\n\n" +
+      "import {Style} from 'xtatic:style';\n\n" +
       '<Style src="./big.css" inlineThreshold={0} />\n',
     '/in/big.css': css,
   });
@@ -39,10 +39,10 @@ test('two pages using the same CSS share one /_assets file', async () => {
   const css = '.shared { color: green; }';
   const fs = makeFs({
     '/in/index.md':
-      "import {Style} from 'immolate:style';\n\n" +
+      "import {Style} from 'xtatic:style';\n\n" +
       '# r\n\n<Style src="/shared.css" inlineThreshold={0} />\n',
     '/in/other.md':
-      "import {Style} from 'immolate:style';\n\n" +
+      "import {Style} from 'xtatic:style';\n\n" +
       '# o\n\n<Style src="/shared.css" inlineThreshold={0} />\n',
     '/in/shared.css': css,
   });
@@ -59,7 +59,7 @@ test('two pages using the same CSS share one /_assets file', async () => {
 test('rewrites url() references relative to the source CSS directory', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {Style} from 'immolate:style';\n\n" +
+      "import {Style} from 'xtatic:style';\n\n" +
       '<Style src="/css/main.css" inlineThreshold={0} />\n',
     '/in/css/main.css':
       ".bg { background-image: url('./bg.png'); }",
@@ -78,7 +78,7 @@ test('rewrites url() references relative to the source CSS directory', async () 
 test('rewrites url() with a leading-slash path against topDir', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {Style} from 'immolate:style';\n\n" +
+      "import {Style} from 'xtatic:style';\n\n" +
       '<Style src="/css/main.css" inlineThreshold={0} />\n',
     '/in/css/main.css':
       ".bg { background-image: url('/img/hero.png'); }",
@@ -99,7 +99,7 @@ test('passes data:, http(s):, //, and # URLs through verbatim', async () => {
     '.d { clip-path: url(#mask); }';
   const fs = makeFs({
     '/in/index.md':
-      "import {Style} from 'immolate:style';\n\n" +
+      "import {Style} from 'xtatic:style';\n\n" +
       '<Style src="./pass.css" inlineThreshold={1000000} />\n',
     '/in/pass.css': cssIn,
   });
@@ -115,7 +115,7 @@ test('fonts referenced via @font-face url() resolve and emit', async () => {
   const fontBytes = Buffer.from('FONTBYTES');
   const fs = makeFs({
     '/in/index.md':
-      "import {Style} from 'immolate:style';\n\n" +
+      "import {Style} from 'xtatic:style';\n\n" +
       '<Style src="./fonts.css" inlineThreshold={0} />\n',
     '/in/fonts.css':
       "@font-face { font-family: 'X'; src: url('./fx.woff2') format('woff2'); }",
@@ -131,7 +131,7 @@ test('fonts referenced via @font-face url() resolve and emit', async () => {
 test('pass-through attrs survive: media on <style> and on <link>', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {Style} from 'immolate:style';\n\n" +
+      "import {Style} from 'xtatic:style';\n\n" +
       '<Style src="./small.css" media="print" />\n' +
       '<Style src="./big.css" inlineThreshold={0} media="screen" />\n',
     '/in/small.css': '.a {}',
@@ -146,7 +146,7 @@ test('pass-through attrs survive: media on <style> and on <link>', async () => {
 test('className is renamed to class on the emitted tag', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {Style} from 'immolate:style';\n\n" +
+      "import {Style} from 'xtatic:style';\n\n" +
       '<Style src="./tiny.css" className="theme" />\n',
     '/in/tiny.css': '.a {}',
   });
@@ -158,7 +158,7 @@ test('className is renamed to class on the emitted tag', async () => {
 test('missing src is rejected with a clear error', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {Style} from 'immolate:style';\n\n<Style />\n",
+      "import {Style} from 'xtatic:style';\n\n<Style />\n",
   });
   await assert.rejects(
     () => build({ inputDir: '/in', outputDir: '/out', fs }),
@@ -169,7 +169,7 @@ test('missing src is rejected with a clear error', async () => {
 test('a missing CSS source surfaces a clear error', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {Style} from 'immolate:style';\n\n" +
+      "import {Style} from 'xtatic:style';\n\n" +
       '<Style src="./missing.css" />\n',
   });
   await assert.rejects(
@@ -181,7 +181,7 @@ test('a missing CSS source surfaces a clear error', async () => {
 test('a missing url() reference surfaces a clear error', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {Style} from 'immolate:style';\n\n" +
+      "import {Style} from 'xtatic:style';\n\n" +
       '<Style src="./broken.css" />\n',
     '/in/broken.css': ".a { background: url('./missing.png'); }",
   });
@@ -194,7 +194,7 @@ test('a missing url() reference surfaces a clear error', async () => {
 test('styleInlineThreshold build option sets the project-wide default', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {Style} from 'immolate:style';\n\n" +
+      "import {Style} from 'xtatic:style';\n\n" +
       '<Style src="./tiny.css" />\n',
     '/in/tiny.css': '.a {}',
   });
@@ -213,7 +213,7 @@ test('Style works when imported from a .jsx component', async () => {
     '/in/index.md':
       "import Theme from './theme.jsx';\n\n# r\n\n<Theme />\n",
     '/in/theme.jsx':
-      "import {Style} from 'immolate:style';\n" +
+      "import {Style} from 'xtatic:style';\n" +
       'export default function Theme() {\n' +
       '  return <Style src="./theme.css" />;\n' +
       '}\n',
@@ -224,11 +224,11 @@ test('Style works when imported from a .jsx component', async () => {
   assert.match(html, /<style>\.t \{ color: teal; \}<\/style>/);
 });
 
-test('importing immolate:style alongside immolate:image works on the same page', async () => {
+test('importing xtatic:style alongside xtatic:image works on the same page', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {Style} from 'immolate:style';\n" +
-      "import {Image} from 'immolate:image';\n\n" +
+      "import {Style} from 'xtatic:style';\n" +
+      "import {Image} from 'xtatic:image';\n\n" +
       '<Style src="./s.css" />\n' +
       '<Image src="./i.svg" alt="i" inlineThreshold={1000000} />\n',
     '/in/s.css': '.s {}',
@@ -241,14 +241,14 @@ test('importing immolate:style alongside immolate:image works on the same page',
   assert.match(html, /<img src="data:image\/svg\+xml;base64,/);
 });
 
-test('the unknown-builtin error lists immolate:style', async () => {
+test('the unknown-builtin error lists xtatic:style', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {x} from 'immolate:nope';\n\n# r\n",
+      "import {x} from 'xtatic:nope';\n\n# r\n",
   });
   await assert.rejects(
     () => build({ inputDir: '/in', outputDir: '/out', fs }),
-    /"immolate:builtins", "immolate:image", "immolate:style"/,
+    /"xtatic:builtins", "xtatic:image", "xtatic:style"/,
   );
 });
 
@@ -256,7 +256,7 @@ test('the same url() referenced from two CSS files dedupes to one asset', async 
   const png = Buffer.from('PNGBYTES');
   const fs = makeFs({
     '/in/index.md':
-      "import {Style} from 'immolate:style';\n\n" +
+      "import {Style} from 'xtatic:style';\n\n" +
       '<Style src="/a.css" inlineThreshold={0} />\n' +
       '<Style src="/b.css" inlineThreshold={0} />\n',
     '/in/a.css': ".a { background: url('/shared.png'); }",

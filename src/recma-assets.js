@@ -1,6 +1,6 @@
 // Recma plugin: rewrites JSX calls for whitelisted (tag, attribute) pairs so
-// the attribute value flows through __immolate_asset(value, opts). Static-string
-// data-immolate-placement attributes are pulled out of the props at compile
+// the attribute value flows through __xtatic_asset(value, opts). Static-string
+// data-xtatic-placement attributes are pulled out of the props at compile
 // time and passed as the second argument.
 //
 // Two tag-arg shapes are matched:
@@ -8,7 +8,7 @@
 //   - _jsx(_components.img, { src: ... }) — MDX's lowering of markdown ![alt](...)
 //
 // At the top of the program body, where `arguments[0]` is the runtime object,
-// we inject `const __immolate_asset = arguments[0].__immolate_asset;` so the
+// we inject `const __xtatic_asset = arguments[0].__xtatic_asset;` so the
 // rewritten calls inside _createMdxContent (where `arguments` refers to props)
 // can resolve via lexical capture.
 
@@ -108,7 +108,7 @@ function makeAssetCall(originalValue, placement) {
   }
   return {
     type: 'CallExpression',
-    callee: { type: 'Identifier', name: '__immolate_asset' },
+    callee: { type: 'Identifier', name: '__xtatic_asset' },
     arguments: callArgs,
     optional: false,
   };
@@ -121,7 +121,7 @@ function makeTopDecl() {
     declarations: [
       {
         type: 'VariableDeclarator',
-        id: { type: 'Identifier', name: '__immolate_asset' },
+        id: { type: 'Identifier', name: '__xtatic_asset' },
         init: {
           type: 'MemberExpression',
           object: {
@@ -131,7 +131,7 @@ function makeTopDecl() {
             computed: true,
             optional: false,
           },
-          property: { type: 'Identifier', name: '__immolate_asset' },
+          property: { type: 'Identifier', name: '__xtatic_asset' },
           computed: false,
           optional: false,
         },
@@ -153,7 +153,7 @@ function processJsxCall(node, tagRules) {
   if (predicate && !predicate(propsNode)) return false;
 
   let placement;
-  const placementProp = findProp(propsNode, 'data-immolate-placement');
+  const placementProp = findProp(propsNode, 'data-xtatic-placement');
   if (placementProp) {
     if (
       isStringLiteral(placementProp.value) &&

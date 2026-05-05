@@ -16,7 +16,7 @@ async function buildAndRead(files, outRel = 'index.html') {
 test('html() injects raw, unescaped HTML at the call site', async () => {
   const html = await buildAndRead({
     '/in/index.md':
-      "import {html} from 'immolate:builtins';\n\n" +
+      "import {html} from 'xtatic:builtins';\n\n" +
       "# Hi\n\n{html('<!DOCTYPE html>')}\n",
   });
   assert.match(html, /<!DOCTYPE html>/);
@@ -26,7 +26,7 @@ test('html() injects raw, unescaped HTML at the call site', async () => {
 test('html() works inside a JSX child position', async () => {
   const html = await buildAndRead({
     '/in/index.md':
-      "import {html} from 'immolate:builtins';\n\n" +
+      "import {html} from 'xtatic:builtins';\n\n" +
       "# H\n\n<div>{html('<b>raw</b>')}</div>\n",
   });
   assert.match(html, /<div><b>raw<\/b><\/div>/);
@@ -45,7 +45,7 @@ test('html() is available in layouts when imported', async () => {
   const fs = makeFs({
     '/in/index.md': '---\nlayout: shell\n---\n\n# Body\n',
     '/layouts/shell.mdx':
-      "import {html} from 'immolate:builtins';\n\n" +
+      "import {html} from 'xtatic:builtins';\n\n" +
       "{html('<!DOCTYPE html>')}\n<html><body>{props.children}</body></html>\n",
   });
   await build({
@@ -62,7 +62,7 @@ test('html() is available in layouts when imported', async () => {
 test('readfile() reads a sibling file via a bare relative path', async () => {
   const html = await buildAndRead({
     '/in/index.md':
-      "import {readfile} from 'immolate:builtins';\n\n" +
+      "import {readfile} from 'xtatic:builtins';\n\n" +
       "{readfile('greeting.txt')}\n",
     '/in/greeting.txt': 'hello from a sibling',
   });
@@ -72,12 +72,12 @@ test('readfile() reads a sibling file via a bare relative path', async () => {
 test('readfile() resolves "./" and "../" against the module directory', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {readfile} from 'immolate:builtins';\n\n" +
+      "import {readfile} from 'xtatic:builtins';\n\n" +
       "root: {readfile('./root.txt')}\n",
     '/in/root.txt': 'R',
     '/in/posts/index.md': '# Posts\n',
     '/in/posts/hi.md':
-      "import {readfile} from 'immolate:builtins';\n\n" +
+      "import {readfile} from 'xtatic:builtins';\n\n" +
       "child: {readfile('../shared.txt')}\n",
     '/in/shared.txt': 'S',
   });
@@ -91,7 +91,7 @@ test('readfile() resolves "./" and "../" against the module directory', async ()
 test('readfile() treats "/foo" as relative to topDir, not module dir', async () => {
   const fs = makeFs({
     '/top/pages/index.md':
-      "import {readfile} from 'immolate:builtins';\n\n" +
+      "import {readfile} from 'xtatic:builtins';\n\n" +
       "{readfile('/data/x.txt')}\n",
     '/top/data/x.txt': 'top-relative-ok',
   });
@@ -108,7 +108,7 @@ test('readfile() treats "/foo" as relative to topDir, not module dir', async () 
 test('readfile() throws a clear error when the file is missing', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {readfile} from 'immolate:builtins';\n\n" +
+      "import {readfile} from 'xtatic:builtins';\n\n" +
       "{readfile('./missing.txt')}\n",
   });
   await assert.rejects(
@@ -129,7 +129,7 @@ test('not importing the builtin leaves "readfile" free for user exports', async 
 test('html and readfile can be imported together in one statement', async () => {
   const html = await buildAndRead({
     '/in/index.md':
-      "import {html, readfile} from 'immolate:builtins';\n\n" +
+      "import {html, readfile} from 'xtatic:builtins';\n\n" +
       "{html('<x>')}/{readfile('a.txt')}\n",
     '/in/a.txt': 'A',
   });
@@ -145,13 +145,13 @@ test('using html() without importing it errors at build time', async () => {
   );
 });
 
-test('importing an unknown immolate: module errors with a clear message', async () => {
+test('importing an unknown xtatic: module errors with a clear message', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {x} from 'immolate:nope';\n\n# H\n",
+      "import {x} from 'xtatic:nope';\n\n# H\n",
   });
   await assert.rejects(
     () => build({ inputDir: '/in', outputDir: '/out', fs }),
-    /Unknown builtin module "immolate:nope".*"immolate:builtins"/s,
+    /Unknown builtin module "xtatic:nope".*"xtatic:builtins"/s,
   );
 });

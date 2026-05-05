@@ -26,14 +26,14 @@ export async function compileSource(source, options = {}) {
     ],
     recmaPlugins: [recmaImports, recmaAssets, recmaSelf],
     outputFormat: 'function-body',
-    baseUrl: 'file:///immolate/',
+    baseUrl: 'file:///xtatic/',
   });
   const fn = new AsyncFunction(String(compiled));
   const mod = await fn({
     ...runtime,
-    baseUrl: 'file:///immolate/',
-    __immolate_resolve: resolve,
-    __immolate_asset: asset ?? ((value) => value),
+    baseUrl: 'file:///xtatic/',
+    __xtatic_resolve: resolve,
+    __xtatic_asset: asset ?? ((value) => value),
   });
   return { ...(mod.frontmatter ?? {}), ...mod };
 }

@@ -61,9 +61,9 @@ test('CLI with no positional arg uses CWD as topDir', () => {
   assert.match(html, /<h1>From CWD<\/h1>/);
 });
 
-test('CLI reads inputDir/outputDir from package.json immolate section', () => {
+test('CLI reads inputDir/outputDir from package.json xtatic section', () => {
   const top = setupTopDir('config-override', {
-    pkg: { immolate: { inputDir: 'src/pages', outputDir: 'dist' } },
+    pkg: { xtatic: { inputDir: 'src/pages', outputDir: 'dist' } },
     files: { 'src/pages/index.md': '# Custom\n' },
   });
   const r = runCli([top]);
@@ -78,7 +78,7 @@ test('CLI reads inputDir/outputDir from package.json immolate section', () => {
 
 test('CLI resolves relative config paths against topDir, not the working directory', () => {
   const top = setupTopDir('relative-resolution', {
-    pkg: { immolate: { inputDir: 'src/pages', outputDir: 'dist' } },
+    pkg: { xtatic: { inputDir: 'src/pages', outputDir: 'dist' } },
     files: { 'src/pages/index.md': '# Relative\n' },
   });
   const r = runCli([top], { cwd: repoRoot });
@@ -92,8 +92,8 @@ test('CLI resolves relative config paths against topDir, not the working directo
   assert.equal(nodeFs.existsSync(path.join(repoRoot, 'dist')), false);
 });
 
-test('CLI ignores package.json when it has no immolate section', () => {
-  const top = setupTopDir('no-immolate-section', {
+test('CLI ignores package.json when it has no xtatic section', () => {
+  const top = setupTopDir('no-xtatic-section', {
     pkg: { name: 'unrelated' },
     files: { 'pages/index.md': '# Plain\n' },
   });
@@ -109,7 +109,7 @@ test('CLI ignores package.json when it has no immolate section', () => {
 test('CLI exits non-zero with usage message when given too many args', () => {
   const r = runCli(['a', 'b']);
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /Usage: immolate \[top_dir\]/);
+  assert.match(r.stderr, /Usage: xtatic \[top_dir\]/);
 });
 
 test('CLI prints a clean error and exits 1, with no internal stack', () => {
@@ -120,16 +120,16 @@ test('CLI prints a clean error and exits 1, with no internal stack', () => {
   assert.equal(r.status, 1);
   assert.match(r.stderr, /^Lint failed with /);
   assert.match(r.stderr, /pages\/index\.md/);
-  assert.match(r.stderr, /\(set IMMOLATE_DEBUG=1 for the full stack\)/);
+  assert.match(r.stderr, /\(set XTATIC_DEBUG=1 for the full stack\)/);
   assert.doesNotMatch(r.stderr, /at \w.*lint\.js/);
   assert.doesNotMatch(r.stderr, /\[cause\]:/);
 });
 
-test('CLI with IMMOLATE_DEBUG=1 surfaces the full stack', () => {
+test('CLI with XTATIC_DEBUG=1 surfaces the full stack', () => {
   const top = setupTopDir('error-debug', {
     files: { 'pages/index.md': '# Hi {foo.}\n' },
   });
-  const r = runCli([top], { env: { ...process.env, IMMOLATE_DEBUG: '1' } });
+  const r = runCli([top], { env: { ...process.env, XTATIC_DEBUG: '1' } });
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /at \w.*lint\.js/);
 });

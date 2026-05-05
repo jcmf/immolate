@@ -78,34 +78,34 @@ test('passthrough URLs are not processed', async () => {
   assert.match(html, /src="#frag"/);
 });
 
-test('data-immolate-placement="inline" forces inline regardless of size', async () => {
+test('data-xtatic-placement="inline" forces inline regardless of size', async () => {
   const fs = makeFs({
     '/in/index.md':
-      '<img src="./big.png" alt="b" data-immolate-placement="inline" />\n',
+      '<img src="./big.png" alt="b" data-xtatic-placement="inline" />\n',
   });
   await fs.promises.writeFile('/in/big.png', bytes(8192));
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
   assert.match(html, /<img src="data:image\/png;base64,/);
-  assert.doesNotMatch(html, /data-immolate-placement/);
+  assert.doesNotMatch(html, /data-xtatic-placement/);
 });
 
-test('data-immolate-placement="shared" forces /_assets even when small', async () => {
+test('data-xtatic-placement="shared" forces /_assets even when small', async () => {
   const fs = makeFs({
     '/in/index.md':
-      '<img src="./tiny.png" alt="t" data-immolate-placement="shared" />\n',
+      '<img src="./tiny.png" alt="t" data-xtatic-placement="shared" />\n',
   });
   await fs.promises.writeFile('/in/tiny.png', bytes(10));
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
   assert.match(html, /<img src="\/_assets\/[a-f0-9]+\.png"/);
-  assert.doesNotMatch(html, /data-immolate-placement/);
+  assert.doesNotMatch(html, /data-xtatic-placement/);
 });
 
-test('data-immolate-placement="co-located" forces co-location when viable', async () => {
+test('data-xtatic-placement="co-located" forces co-location when viable', async () => {
   const fs = makeFs({
     '/in/index.md':
-      '<img src="./tiny.png" alt="t" data-immolate-placement="co-located" />\n',
+      '<img src="./tiny.png" alt="t" data-xtatic-placement="co-located" />\n',
   });
   await fs.promises.writeFile('/in/tiny.png', bytes(10));
   await build({ inputDir: '/in', outputDir: '/out', fs });
@@ -115,11 +115,11 @@ test('data-immolate-placement="co-located" forces co-location when viable', asyn
   assert.equal(stat.size, 10);
 });
 
-test('data-immolate-placement="co-located" throws when not viable', async () => {
+test('data-xtatic-placement="co-located" throws when not viable', async () => {
   const fs = makeFs({
     '/in/posts/index.md': '# posts\n',
     '/in/posts/p.md':
-      '<img src="/shared.png" alt="x" data-immolate-placement="co-located" />\n',
+      '<img src="/shared.png" alt="x" data-xtatic-placement="co-located" />\n',
     '/in/index.md': '# root\n',
   });
   await fs.promises.writeFile('/in/shared.png', bytes(10));
@@ -359,20 +359,20 @@ test('escape hatch works inside .jsx', async () => {
       "import Pic from './pic.jsx';\n\n<Pic />\n",
     '/in/pic.jsx':
       "export default function Pic() {\n" +
-      "  return <img src='./big.png' alt='b' data-immolate-placement='inline' />;\n" +
+      "  return <img src='./big.png' alt='b' data-xtatic-placement='inline' />;\n" +
       "}\n",
   });
   await fs.promises.writeFile('/in/big.png', bytes(8192));
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
   assert.match(html, /<img src="data:image\/png;base64,/);
-  assert.doesNotMatch(html, /data-immolate-placement/);
+  assert.doesNotMatch(html, /data-xtatic-placement/);
 });
 
 test('asset builtin emits an asset and returns its URL', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {asset} from 'immolate:builtins';\n\n" +
+      "import {asset} from 'xtatic:builtins';\n\n" +
       "<a href={asset('./report.pdf')}>report</a>\n",
   });
   await fs.promises.writeFile('/in/report.pdf', bytes(8192));
@@ -384,7 +384,7 @@ test('asset builtin emits an asset and returns its URL', async () => {
 test('asset builtin supports the placement option', async () => {
   const fs = makeFs({
     '/in/index.md':
-      "import {asset} from 'immolate:builtins';\n\n" +
+      "import {asset} from 'xtatic:builtins';\n\n" +
       "<a href={asset('./big.pdf', {placement: 'inline'})}>x</a>\n",
   });
   await fs.promises.writeFile('/in/big.pdf', bytes(8192));

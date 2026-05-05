@@ -109,7 +109,7 @@ test('CLI loads a remark plugin named in package.json from topDir node_modules',
   const top = setupTopDir('cli-string-spec', {
     pkg: {
       type: 'module',
-      immolate: { remarkPlugins: ['fake-remark'] },
+      xtatic: { remarkPlugins: ['fake-remark'] },
     },
     files: {
       'pages/index.md': '# TEMPLATE here\n',
@@ -134,7 +134,7 @@ test('CLI honors plugin options via the [name, options] tuple form', () => {
   const top = setupTopDir('cli-tuple-opts', {
     pkg: {
       type: 'module',
-      immolate: {
+      xtatic: {
         remarkPlugins: [['fake-remark', { find: 'world', replace: 'mars' }]],
       },
     },
@@ -159,7 +159,7 @@ test('CLI honors plugin options via the [name, options] tuple form', () => {
 
 test('CLI errors clearly when a configured remark plugin is not installed', () => {
   const top = setupTopDir('cli-missing-plugin', {
-    pkg: { immolate: { remarkPlugins: ['nope-not-installed'] } },
+    pkg: { xtatic: { remarkPlugins: ['nope-not-installed'] } },
     files: { 'pages/index.md': '# x\n' },
   });
   const r = spawnSync(process.execPath, [cli, top], { encoding: 'utf8' });

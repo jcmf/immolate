@@ -125,15 +125,15 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
     }
     Object.assign(mm, compiled);
     const original = mm.default;
-    mm.default = (props = {}) => original({ ...props, __immolate_self: mm });
+    mm.default = (props = {}) => original({ ...props, __xtatic_self: mm });
     mdxModules.get(absPath).status = 'done';
     return mm;
   }
 
   function makeResolver(importerAbsPath) {
     return async function resolve(spec) {
-      if (spec.startsWith('immolate:')) {
-        if (spec === 'immolate:builtins') {
+      if (spec.startsWith('xtatic:')) {
+        if (spec === 'xtatic:builtins') {
           return {
             html: htmlBuiltin,
             readfile: makeReadfile({
@@ -147,18 +147,18 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
               : (value) => value,
           };
         }
-        if (spec === 'immolate:image') {
+        if (spec === 'xtatic:image') {
           if (!imageRegistry) {
             throw new Error(
-              `"immolate:image" was imported from "${displayPath(importerAbsPath)}" but no image registry was provided to createRegistry.`,
+              `"xtatic:image" was imported from "${displayPath(importerAbsPath)}" but no image registry was provided to createRegistry.`,
             );
           }
           return { Image: imageRegistry.forImporter(importerAbsPath) };
         }
-        if (spec === 'immolate:style') {
+        if (spec === 'xtatic:style') {
           if (!styleRegistry) {
             throw new Error(
-              `"immolate:style" was imported from "${displayPath(importerAbsPath)}" but no style registry was provided to createRegistry.`,
+              `"xtatic:style" was imported from "${displayPath(importerAbsPath)}" but no style registry was provided to createRegistry.`,
             );
           }
           return { Style: styleRegistry.forImporter(importerAbsPath) };

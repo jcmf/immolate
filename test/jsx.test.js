@@ -56,11 +56,11 @@ test('a .jsx file can import an .mdx fragment and render it as a component', asy
   assert.match(html, /<article><h2>Sub<\/h2><\/article>/);
 });
 
-test('.jsx files can import html() and readfile() from immolate:builtins', async () => {
+test('.jsx files can import html() and readfile() from xtatic:builtins', async () => {
   const html = await buildAndRead({
     '/in/index.md': "import Inj from './inj.jsx';\n\n<Inj />\n",
     '/in/inj.jsx':
-      "import {html, readfile} from 'immolate:builtins';\n" +
+      "import {html, readfile} from 'xtatic:builtins';\n" +
       'export default function Inj() {\n' +
       "  return <div>{html('<!doctype-fragment>')}|{readfile('./greet.txt')}</div>;\n" +
       '}\n',

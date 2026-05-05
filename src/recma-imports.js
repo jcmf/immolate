@@ -1,4 +1,4 @@
-const SPEC_RE = /^(?:\.\.?\/|\/).+\.(mdx?|jsx?)$|^immolate:[a-z][a-z0-9-]*$/;
+const SPEC_RE = /^(?:\.\.?\/|\/).+\.(mdx?|jsx?)$|^xtatic:[a-z][a-z0-9-]*$/;
 const MDX_LIKE_RE = /\.mdx?$/;
 
 function id(name) {
@@ -35,7 +35,7 @@ function makeResolveAwait(spec) {
           computed: true,
           optional: false,
         },
-        property: id('__immolate_resolve'),
+        property: id('__xtatic_resolve'),
         computed: false,
         optional: false,
       },
@@ -137,7 +137,7 @@ export function recmaImports() {
             continue;
           }
 
-          const nsName = `__immolate_ns_${nsCounter++}`;
+          const nsName = `__xtatic_ns_${nsCounter++}`;
           newBody.push(constDecl(id(nsName), makeResolveAwait(spec)));
           const { defaultLocal, remaining } = splitDefault(decl.id);
           if (defaultLocal) {
