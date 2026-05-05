@@ -5,8 +5,8 @@ A small static-site generator: MDX in, plain HTML out. The MDX is compiled and e
 ## Install & run
 
 ```sh
-npm install
-node src/cli.js [TOP_DIR]
+npm install --save-dev xtatic
+npx xtatic [TOP_DIR]
 ```
 
 `TOP_DIR` defaults to the current directory. By default, xtatic walks `TOP_DIR/pages/**/*.{md,mdx}` and writes to `TOP_DIR/site/`.

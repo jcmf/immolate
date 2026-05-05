@@ -2,12 +2,35 @@
   "name": "xtatic",
   "version": "0.1.0",
   "description": "Static site generator that compiles MDX to HTML by executing it at build time.",
+  "keywords": [
+    "static-site-generator",
+    "ssg",
+    "mdx",
+    "markdown",
+    "html"
+  ],
+  "homepage": "https://github.com/jcmf/xtatic#readme",
+  "bugs": {
+    "url": "https://github.com/jcmf/xtatic/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jcmf/xtatic.git"
+  },
+  "license": "MIT",
+  "author": "Jacques Frechet",
   "type": "module",
   "bin": {
     "xtatic": "./src/cli.js"
   },
+  "files": [
+    "src",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "prepublishOnly": "node --test"
   },
   "engines": {
     "node": ">=20"
