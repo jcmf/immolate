@@ -1,0 +1,37 @@
+name: Publish to npm
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      # npm >= 11.5.1 is required for trusted publishing (OIDC).
+      - run: npm install -g npm@latest
+
+      - run: npm ci
+
+      - name: Publish if version is new
+        run: |
+          set -euo pipefail
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          PUBLISHED=$(npm view "$PKG_NAME@$PKG_VERSION" version 2>/dev/null || true)
+          if [ "$PUBLISHED" = "$PKG_VERSION" ]; then
+            echo "$PKG_NAME@$PKG_VERSION already published — skipping"
+          else
+            echo "Publishing $PKG_NAME@$PKG_VERSION"
+            npm publish
+          fi
