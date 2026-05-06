@@ -55,5 +55,8 @@
     "sharp": {
       "optional": true
     }
+  },
+  "overrides": {
+    "glob": "^13.0.0"
   }
 }
