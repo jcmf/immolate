@@ -5,6 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from './index.js';
 import { runLint } from './lint.js';
+import { serve } from './serve.js';
 import { watch } from './watch.js';
 
 const HELP = `xtatic — static-site generator (MDX in, plain HTML out)
@@ -15,9 +16,14 @@ Usage:
 Commands:
   build [top_dir]   Build the site. top_dir defaults to the current directory.
   watch [top_dir]   Build, then rebuild on every change under top_dir.
+  serve [top_dir]   Watch and serve the output over HTTP (default port 3000;
+                    override with XTATIC_PORT).
+  browse [top_dir]  Same as "serve", and open the root page in a browser.
   help              Show this help.
 
 If no command is given, "build" is run with no arguments.`;
+
+const KNOWN = new Set(['build', 'watch', 'serve', 'browse']);
 
 const args = process.argv.slice(2);
 const command = args[0] ?? 'build';
@@ -28,7 +34,7 @@ if (command === 'help') {
   process.exit(0);
 }
 
-if (command !== 'build' && command !== 'watch') {
+if (!KNOWN.has(command)) {
   console.error(`xtatic: unknown command "${command}"`);
   console.error('Run "xtatic help" for usage.');
   process.exit(1);
@@ -144,6 +150,24 @@ if (command === 'build') {
     console.error('\n(set XTATIC_DEBUG=1 for the full stack)');
     process.exit(1);
   }
-} else {
+} else if (command === 'watch') {
   await watch({ buildOptions });
+} else {
+  let port = 3000;
+  if (process.env.XTATIC_PORT != null) {
+    const n = Number(process.env.XTATIC_PORT);
+    if (!Number.isInteger(n) || n < 0 || n > 65535) {
+      console.error(`xtatic: invalid XTATIC_PORT="${process.env.XTATIC_PORT}"`);
+      process.exit(1);
+    }
+    port = n;
+  }
+  try {
+    await serve({ buildOptions, port, open: command === 'browse' });
+  } catch (e) {
+    if (process.env.XTATIC_DEBUG) throw e;
+    console.error(e.message);
+    console.error('\n(set XTATIC_DEBUG=1 for the full stack)');
+    process.exit(1);
+  }
 }

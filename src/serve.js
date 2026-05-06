@@ -1,0 +1,161 @@
+import { spawn } from 'node:child_process';
+import * as fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import { watch } from './watch.js';
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.htm': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.avif': 'image/avif',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.txt': 'text/plain; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
+  '.pdf': 'application/pdf',
+};
+
+function mimeFor(p) {
+  return MIME[path.extname(p).toLowerCase()] ?? 'application/octet-stream';
+}
+
+function isWithin(parent, child) {
+  return child === parent || child.startsWith(parent + path.sep);
+}
+
+function send(res, status, headers, body) {
+  res.writeHead(status, headers);
+  res.end(body);
+}
+
+async function handle(outputDir, req, res) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    return send(
+      res,
+      405,
+      { 'content-type': 'text/plain; charset=utf-8' },
+      'Method Not Allowed',
+    );
+  }
+  const parsed = new URL(req.url, 'http://x');
+  const pathname = decodeURIComponent(parsed.pathname);
+  const rel = pathname.replace(/^\/+/, '');
+  const isDirRequest = pathname === '' || pathname.endsWith('/');
+  const target = isDirRequest
+    ? path.resolve(outputDir, rel, 'index.html')
+    : path.resolve(outputDir, rel);
+  if (!isWithin(outputDir, target)) {
+    return send(
+      res,
+      400,
+      { 'content-type': 'text/plain; charset=utf-8' },
+      'Bad Request',
+    );
+  }
+  let stat;
+  try {
+    stat = await fs.promises.stat(target);
+  } catch {
+    return send(
+      res,
+      404,
+      { 'content-type': 'text/plain; charset=utf-8' },
+      'Not Found',
+    );
+  }
+  if (stat.isDirectory()) {
+    return send(res, 301, { location: pathname + '/' + (parsed.search || '') }, '');
+  }
+  const headers = {
+    'content-type': mimeFor(target),
+    'content-length': stat.size,
+    'cache-control': 'no-store',
+  };
+  if (req.method === 'HEAD') {
+    res.writeHead(200, headers);
+    return res.end();
+  }
+  res.writeHead(200, headers);
+  fs.createReadStream(target).pipe(res);
+}
+
+function openBrowser(url) {
+  const p = process.platform;
+  let cmd, args;
+  if (p === 'darwin') {
+    cmd = 'open';
+    args = [url];
+  } else if (p === 'win32') {
+    cmd = 'cmd';
+    args = ['/c', 'start', '""', url];
+  } else {
+    cmd = 'xdg-open';
+    args = [url];
+  }
+  try {
+    const c = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+    c.on('error', () => {});
+    c.unref();
+  } catch {}
+}
+
+export async function serve({
+  buildOptions,
+  port = 3000,
+  host = '127.0.0.1',
+  open = false,
+}) {
+  await watch({ buildOptions });
+  const server = http.createServer((req, res) => {
+    handle(buildOptions.outputDir, req, res).catch((e) => {
+      console.error(`[xtatic] server error: ${e.message}`);
+      try {
+        send(
+          res,
+          500,
+          { 'content-type': 'text/plain; charset=utf-8' },
+          'Internal Server Error',
+        );
+      } catch {}
+    });
+  });
+  await new Promise((resolve, reject) => {
+    function onError(e) {
+      if (e.code === 'EADDRINUSE') {
+        reject(
+          new Error(
+            `Port ${port} is already in use. Set XTATIC_PORT to a different value.`,
+          ),
+        );
+      } else {
+        reject(e);
+      }
+    }
+    server.once('error', onError);
+    server.listen(port, host, () => {
+      server.removeListener('error', onError);
+      resolve();
+    });
+  });
+  const addr = server.address();
+  const url = `http://${addr.address}:${addr.port}/`;
+  console.log(`[xtatic] serving ${url}`);
+  if (open) {
+    console.log(`[xtatic] opening ${url}`);
+    if (!process.env.XTATIC_NO_OPEN) openBrowser(url);
+  }
+  return { server, url };
+}

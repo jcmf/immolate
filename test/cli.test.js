@@ -247,3 +247,104 @@ test('watch keeps running and recovers after a build error', async () => {
     await w.exited;
   }
 });
+
+function extractServeUrl(stdout) {
+  const m = stdout.match(/\[xtatic\] serving (http:\/\/\S+)/);
+  return m && m[1];
+}
+
+test('serve responds to / and /sub/ and rebuilds on change', async () => {
+  const top = setupTopDir('serve-rebuild', {
+    files: {
+      'pages/index.md': '# original\n',
+      'pages/about.md': '# about original\n',
+    },
+  });
+  const w = spawnWatch(['serve', top], {
+    env: { ...process.env, XTATIC_PORT: '0' },
+  });
+  try {
+    await w.waitUntil(() => extractServeUrl(w.buffers.stdout), {
+      label: 'server start',
+    });
+    const url = extractServeUrl(w.buffers.stdout);
+
+    const r1 = await fetch(url);
+    assert.equal(r1.status, 200);
+    assert.match(r1.headers.get('content-type'), /text\/html/);
+    assert.match(await r1.text(), /<h1>original<\/h1>/);
+
+    const r2 = await fetch(url + 'about/');
+    assert.equal(r2.status, 200);
+    assert.match(await r2.text(), /<h1>about original<\/h1>/);
+
+    const r3 = await fetch(url + 'about', { redirect: 'manual' });
+    assert.equal(r3.status, 301);
+    assert.equal(r3.headers.get('location'), '/about/');
+
+    const r4 = await fetch(url + 'nope');
+    assert.equal(r4.status, 404);
+
+    const before = w.countBuilds();
+    nodeFs.writeFileSync(path.join(top, 'pages', 'index.md'), '# updated\n');
+    await w.waitUntil(() => w.countBuilds() > before, { label: 'rebuild' });
+    const r5 = await fetch(url);
+    assert.match(await r5.text(), /<h1>updated<\/h1>/);
+  } finally {
+    w.proc.kill('SIGTERM');
+    await w.exited;
+  }
+});
+
+test('serve rejects path-traversal attempts', async () => {
+  const top = setupTopDir('serve-traversal', {
+    files: { 'pages/index.md': '# Hi\n' },
+  });
+  const w = spawnWatch(['serve', top], {
+    env: { ...process.env, XTATIC_PORT: '0' },
+  });
+  try {
+    await w.waitUntil(() => extractServeUrl(w.buffers.stdout), {
+      label: 'server start',
+    });
+    const url = extractServeUrl(w.buffers.stdout);
+    const r = await fetch(url + '../../etc/passwd', { redirect: 'manual' });
+    assert.ok(r.status === 400 || r.status === 404, `got ${r.status}`);
+  } finally {
+    w.proc.kill('SIGTERM');
+    await w.exited;
+  }
+});
+
+test('browse logs the URL it would open and serves the page', async () => {
+  const top = setupTopDir('browse-log', {
+    files: { 'pages/index.md': '# Browse me\n' },
+  });
+  const w = spawnWatch(['browse', top], {
+    env: { ...process.env, XTATIC_PORT: '0', XTATIC_NO_OPEN: '1' },
+  });
+  try {
+    await w.waitUntil(
+      () => /\[xtatic\] opening http:\/\/\S+/.test(w.buffers.stdout),
+      { label: 'browse open log' },
+    );
+    const m = w.buffers.stdout.match(/\[xtatic\] opening (http:\/\/\S+)/);
+    const r = await fetch(m[1]);
+    assert.equal(r.status, 200);
+    assert.match(await r.text(), /<h1>Browse me<\/h1>/);
+  } finally {
+    w.proc.kill('SIGTERM');
+    await w.exited;
+  }
+});
+
+test('serve fails with a clear message when XTATIC_PORT is invalid', () => {
+  const top = setupTopDir('serve-bad-port', {
+    files: { 'pages/index.md': '# x\n' },
+  });
+  const r = runCli(['serve', top], {
+    env: { ...process.env, XTATIC_PORT: 'banana' },
+  });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /invalid XTATIC_PORT/);
+});
