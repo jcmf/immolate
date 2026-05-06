@@ -1,6 +1,6 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import * as nodeFs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -162,4 +162,88 @@ test('CLI with XTATIC_DEBUG=1 surfaces the full stack', () => {
   });
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /at \w.*lint\.js/);
+});
+
+function spawnWatch(args, opts = {}) {
+  const proc = spawn(process.execPath, [cli, ...args], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    ...opts,
+  });
+  const buffers = { stdout: '', stderr: '' };
+  proc.stdout.setEncoding('utf8');
+  proc.stderr.setEncoding('utf8');
+  proc.stdout.on('data', (c) => (buffers.stdout += c));
+  proc.stderr.on('data', (c) => (buffers.stderr += c));
+  const exited = new Promise((resolve) => proc.on('exit', resolve));
+  async function waitUntil(check, { timeoutMs = 15000, label } = {}) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (check()) return;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    throw new Error(
+      `Timed out waiting for ${label ?? check}. stdout=${JSON.stringify(buffers.stdout)} stderr=${JSON.stringify(buffers.stderr)}`,
+    );
+  }
+  function countBuilds() {
+    return (buffers.stdout.match(/\[xtatic\] built in /g) || []).length;
+  }
+  return { proc, buffers, exited, waitUntil, countBuilds };
+}
+
+test('watch builds initially and rebuilds on change', async () => {
+  const top = setupTopDir('watch-rebuild', {
+    files: { 'pages/index.md': '# original\n' },
+  });
+  const w = spawnWatch(['watch', top]);
+  try {
+    await w.waitUntil(() => w.countBuilds() >= 1, { label: 'initial build' });
+    await w.waitUntil(() => /\[xtatic\] watching /.test(w.buffers.stdout), {
+      label: 'watcher start',
+    });
+    let html = nodeFs.readFileSync(
+      path.join(top, 'site', 'index.html'),
+      'utf8',
+    );
+    assert.match(html, /<h1>original<\/h1>/);
+
+    const before = w.countBuilds();
+    nodeFs.writeFileSync(path.join(top, 'pages', 'index.md'), '# updated\n');
+    await w.waitUntil(() => w.countBuilds() > before, {
+      label: 'rebuild after edit',
+    });
+    html = nodeFs.readFileSync(path.join(top, 'site', 'index.html'), 'utf8');
+    assert.match(html, /<h1>updated<\/h1>/);
+  } finally {
+    w.proc.kill('SIGTERM');
+    await w.exited;
+  }
+});
+
+test('watch keeps running and recovers after a build error', async () => {
+  const top = setupTopDir('watch-error-recovery', {
+    files: { 'pages/index.md': '# Broken {foo.}\n' },
+  });
+  const w = spawnWatch(['watch', top]);
+  try {
+    await w.waitUntil(
+      () => /\[xtatic\] build failed/.test(w.buffers.stderr),
+      { label: 'initial build failure' },
+    );
+    await w.waitUntil(() => /\[xtatic\] watching /.test(w.buffers.stdout), {
+      label: 'watcher start',
+    });
+    nodeFs.writeFileSync(path.join(top, 'pages', 'index.md'), '# Fixed\n');
+    await w.waitUntil(() => w.countBuilds() >= 1, {
+      label: 'successful rebuild',
+    });
+    const html = nodeFs.readFileSync(
+      path.join(top, 'site', 'index.html'),
+      'utf8',
+    );
+    assert.match(html, /<h1>Fixed<\/h1>/);
+  } finally {
+    w.proc.kill('SIGTERM');
+    await w.exited;
+  }
 });

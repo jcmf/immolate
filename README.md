@@ -14,6 +14,7 @@ npx xtatic build [TOP_DIR]
 The first positional argument is a command. The available commands are:
 
 - `build [top_dir]` — build the site (the default if no command is given).
+- `watch [top_dir]` — build, then rebuild on every change under `top_dir`. Errors don't kill the watcher; fix the file and save again.
 - `help` — print usage.
 
 If you invoke `xtatic` with no arguments, it runs `build` against the current directory. To build a different directory, pass it as the second argument: `xtatic build path/to/site`.

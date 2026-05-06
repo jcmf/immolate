@@ -5,6 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from './index.js';
 import { runLint } from './lint.js';
+import { watch } from './watch.js';
 
 const HELP = `xtatic — static-site generator (MDX in, plain HTML out)
 
@@ -13,6 +14,7 @@ Usage:
 
 Commands:
   build [top_dir]   Build the site. top_dir defaults to the current directory.
+  watch [top_dir]   Build, then rebuild on every change under top_dir.
   help              Show this help.
 
 If no command is given, "build" is run with no arguments.`;
@@ -26,14 +28,14 @@ if (command === 'help') {
   process.exit(0);
 }
 
-if (command !== 'build') {
+if (command !== 'build' && command !== 'watch') {
   console.error(`xtatic: unknown command "${command}"`);
   console.error('Run "xtatic help" for usage.');
   process.exit(1);
 }
 
 if (rest.length > 1) {
-  console.error('Usage: xtatic build [top_dir]');
+  console.error(`Usage: xtatic ${command} [top_dir]`);
   process.exit(1);
 }
 
@@ -111,23 +113,37 @@ async function loadRemarkPlugins(specs) {
   return loaded;
 }
 
+let remarkPlugins;
 try {
-  await runLint({ topDir, outputDir });
-  const remarkPlugins = await loadRemarkPlugins(remarkPluginSpecs);
-  await build({
-    inputDir,
-    outputDir,
-    topDir,
-    layoutsDir,
-    remarkPlugins,
-    imageInlineThreshold,
-    styleInlineThreshold,
-    assetInlineThreshold,
-    fs,
-  });
+  remarkPlugins = await loadRemarkPlugins(remarkPluginSpecs);
 } catch (e) {
   if (process.env.XTATIC_DEBUG) throw e;
   console.error(e.message);
   console.error('\n(set XTATIC_DEBUG=1 for the full stack)');
   process.exit(1);
+}
+
+const buildOptions = {
+  inputDir,
+  outputDir,
+  topDir,
+  layoutsDir,
+  remarkPlugins,
+  imageInlineThreshold,
+  styleInlineThreshold,
+  assetInlineThreshold,
+};
+
+if (command === 'build') {
+  try {
+    await runLint({ topDir, outputDir });
+    await build({ ...buildOptions, fs });
+  } catch (e) {
+    if (process.env.XTATIC_DEBUG) throw e;
+    console.error(e.message);
+    console.error('\n(set XTATIC_DEBUG=1 for the full stack)');
+    process.exit(1);
+  }
+} else {
+  await watch({ buildOptions });
 }

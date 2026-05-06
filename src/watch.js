@@ -1,0 +1,67 @@
+import * as fs from 'node:fs';
+import path from 'node:path';
+import { build } from './index.js';
+import { runLint } from './lint.js';
+
+export async function watch({ buildOptions, debounceMs = 100 }) {
+  const { topDir, outputDir } = buildOptions;
+
+  let building = false;
+  let dirty = false;
+  let timer = null;
+
+  async function runOnce() {
+    building = true;
+    const start = Date.now();
+    try {
+      await runLint({ topDir, outputDir });
+      await build({ ...buildOptions, fs });
+      console.log(`[xtatic] built in ${Date.now() - start}ms`);
+    } catch (e) {
+      console.error(`[xtatic] build failed: ${e.message}`);
+      if (process.env.XTATIC_DEBUG) console.error(e.stack);
+    } finally {
+      building = false;
+      if (dirty) {
+        dirty = false;
+        schedule();
+      }
+    }
+  }
+
+  function schedule() {
+    if (building) {
+      dirty = true;
+      return;
+    }
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      runOnce();
+    }, debounceMs);
+  }
+
+  await runOnce();
+
+  const ignoredDirs = [outputDir, path.join(topDir, 'node_modules')];
+  function isIgnored(abs) {
+    for (const p of ignoredDirs) {
+      if (abs === p || abs.startsWith(p + path.sep)) return true;
+    }
+    return false;
+  }
+
+  const watcher = fs.watch(topDir, { recursive: true, persistent: true });
+  watcher.on('change', (_eventType, filename) => {
+    if (!filename) return;
+    const abs = path.resolve(topDir, String(filename));
+    if (isIgnored(abs)) return;
+    schedule();
+  });
+  watcher.on('error', (e) => {
+    console.error(`[xtatic] watcher error: ${e.message}`);
+  });
+
+  console.log(`[xtatic] watching ${topDir} (Ctrl-C to stop)`);
+  return watcher;
+}
