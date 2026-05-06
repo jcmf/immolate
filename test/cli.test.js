@@ -39,7 +39,7 @@ test('CLI defaults to pages/ → site/ under topDir when no package.json exists'
   const top = setupTopDir('defaults', {
     files: { 'pages/index.md': '# Default layout\n' },
   });
-  const r = runCli([top]);
+  const r = runCli(['build', top]);
   assert.equal(r.status, 0, r.stderr);
   const html = nodeFs.readFileSync(
     path.join(top, 'site', 'index.html'),
@@ -48,7 +48,7 @@ test('CLI defaults to pages/ → site/ under topDir when no package.json exists'
   assert.match(html, /<h1>Default layout<\/h1>/);
 });
 
-test('CLI with no positional arg uses CWD as topDir', () => {
+test('CLI with no args defaults to "build" in CWD', () => {
   const top = setupTopDir('cwd', {
     files: { 'pages/index.md': '# From CWD\n' },
   });
@@ -61,12 +61,25 @@ test('CLI with no positional arg uses CWD as topDir', () => {
   assert.match(html, /<h1>From CWD<\/h1>/);
 });
 
+test('CLI with bare "build" command uses CWD as topDir', () => {
+  const top = setupTopDir('cwd-build', {
+    files: { 'pages/index.md': '# Bare build\n' },
+  });
+  const r = runCli(['build'], { cwd: top });
+  assert.equal(r.status, 0, r.stderr);
+  const html = nodeFs.readFileSync(
+    path.join(top, 'site', 'index.html'),
+    'utf8',
+  );
+  assert.match(html, /<h1>Bare build<\/h1>/);
+});
+
 test('CLI reads inputDir/outputDir from package.json xtatic section', () => {
   const top = setupTopDir('config-override', {
     pkg: { xtatic: { inputDir: 'src/pages', outputDir: 'dist' } },
     files: { 'src/pages/index.md': '# Custom\n' },
   });
-  const r = runCli([top]);
+  const r = runCli(['build', top]);
   assert.equal(r.status, 0, r.stderr);
   const html = nodeFs.readFileSync(
     path.join(top, 'dist', 'index.html'),
@@ -81,7 +94,7 @@ test('CLI resolves relative config paths against topDir, not the working directo
     pkg: { xtatic: { inputDir: 'src/pages', outputDir: 'dist' } },
     files: { 'src/pages/index.md': '# Relative\n' },
   });
-  const r = runCli([top], { cwd: repoRoot });
+  const r = runCli(['build', top], { cwd: repoRoot });
   assert.equal(r.status, 0, r.stderr);
   const html = nodeFs.readFileSync(
     path.join(top, 'dist', 'index.html'),
@@ -97,7 +110,7 @@ test('CLI ignores package.json when it has no xtatic section', () => {
     pkg: { name: 'unrelated' },
     files: { 'pages/index.md': '# Plain\n' },
   });
-  const r = runCli([top]);
+  const r = runCli(['build', top]);
   assert.equal(r.status, 0, r.stderr);
   const html = nodeFs.readFileSync(
     path.join(top, 'site', 'index.html'),
@@ -106,17 +119,32 @@ test('CLI ignores package.json when it has no xtatic section', () => {
   assert.match(html, /<h1>Plain<\/h1>/);
 });
 
-test('CLI exits non-zero with usage message when given too many args', () => {
-  const r = runCli(['a', 'b']);
+test('CLI rejects unknown commands', () => {
+  const r = runCli(['bogus']);
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /Usage: xtatic \[top_dir\]/);
+  assert.match(r.stderr, /unknown command "bogus"/);
+  assert.match(r.stderr, /xtatic help/);
+});
+
+test('CLI rejects extra positional args after build', () => {
+  const r = runCli(['build', 'a', 'b']);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /Usage: xtatic build \[top_dir\]/);
+});
+
+test('CLI help command prints usage and exits 0', () => {
+  const r = runCli(['help']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Usage:/);
+  assert.match(r.stdout, /\bbuild\b/);
+  assert.match(r.stdout, /\bhelp\b/);
 });
 
 test('CLI prints a clean error and exits 1, with no internal stack', () => {
   const top = setupTopDir('error-clean', {
     files: { 'pages/index.md': '# Hi {foo.}\n' },
   });
-  const r = runCli([top]);
+  const r = runCli(['build', top]);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /^Lint failed with /);
   assert.match(r.stderr, /pages\/index\.md/);
@@ -129,7 +157,9 @@ test('CLI with XTATIC_DEBUG=1 surfaces the full stack', () => {
   const top = setupTopDir('error-debug', {
     files: { 'pages/index.md': '# Hi {foo.}\n' },
   });
-  const r = runCli([top], { env: { ...process.env, XTATIC_DEBUG: '1' } });
+  const r = runCli(['build', top], {
+    env: { ...process.env, XTATIC_DEBUG: '1' },
+  });
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /at \w.*lint\.js/);
 });

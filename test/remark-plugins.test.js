@@ -121,7 +121,7 @@ test('CLI loads a remark plugin named in package.json from topDir node_modules',
       'node_modules/fake-remark/index.js': stubPluginSrc,
     },
   });
-  const r = spawnSync(process.execPath, [cli, top], { encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [cli, 'build', top], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   const html = nodeFs.readFileSync(
     path.join(top, 'site', 'index.html'),
@@ -148,7 +148,7 @@ test('CLI honors plugin options via the [name, options] tuple form', () => {
       'node_modules/fake-remark/index.js': stubPluginSrc,
     },
   });
-  const r = spawnSync(process.execPath, [cli, top], { encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [cli, 'build', top], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   const html = nodeFs.readFileSync(
     path.join(top, 'site', 'index.html'),
@@ -162,7 +162,7 @@ test('CLI errors clearly when a configured remark plugin is not installed', () =
     pkg: { xtatic: { remarkPlugins: ['nope-not-installed'] } },
     files: { 'pages/index.md': '# x\n' },
   });
-  const r = spawnSync(process.execPath, [cli, top], { encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [cli, 'build', top], { encoding: 'utf8' });
   assert.equal(r.status, 1);
   assert.match(
     r.stderr,

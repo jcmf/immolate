@@ -26,7 +26,7 @@ function setupTopDir(slug, files) {
 }
 
 function runCli(top) {
-  return spawnSync(process.execPath, [cli, top], { encoding: 'utf8' });
+  return spawnSync(process.execPath, [cli, 'build', top], { encoding: 'utf8' });
 }
 
 test('lint passes when imports are well-formed', () => {

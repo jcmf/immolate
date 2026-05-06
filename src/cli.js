@@ -6,13 +6,38 @@ import { pathToFileURL } from 'node:url';
 import { build } from './index.js';
 import { runLint } from './lint.js';
 
+const HELP = `xtatic — static-site generator (MDX in, plain HTML out)
+
+Usage:
+  xtatic [command] [args...]
+
+Commands:
+  build [top_dir]   Build the site. top_dir defaults to the current directory.
+  help              Show this help.
+
+If no command is given, "build" is run with no arguments.`;
+
 const args = process.argv.slice(2);
-if (args.length > 1) {
-  console.error('Usage: xtatic [top_dir]');
+const command = args[0] ?? 'build';
+const rest = args.slice(1);
+
+if (command === 'help') {
+  console.log(HELP);
+  process.exit(0);
+}
+
+if (command !== 'build') {
+  console.error(`xtatic: unknown command "${command}"`);
+  console.error('Run "xtatic help" for usage.');
   process.exit(1);
 }
 
-const topDir = path.resolve(args[0] ?? '.');
+if (rest.length > 1) {
+  console.error('Usage: xtatic build [top_dir]');
+  process.exit(1);
+}
+
+const topDir = path.resolve(rest[0] ?? '.');
 let inputDir = 'pages';
 let outputDir = 'site';
 let layoutsDir = 'layouts';

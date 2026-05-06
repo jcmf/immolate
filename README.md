@@ -6,10 +6,17 @@ A small static-site generator: MDX in, plain HTML out. The MDX is compiled and e
 
 ```sh
 npm install --save-dev xtatic
-npx xtatic [TOP_DIR]
+npx xtatic build [TOP_DIR]
 ```
 
 `TOP_DIR` defaults to the current directory. By default, xtatic walks `TOP_DIR/pages/**/*.{md,mdx}` and writes to `TOP_DIR/site/`.
+
+The first positional argument is a command. The available commands are:
+
+- `build [top_dir]` — build the site (the default if no command is given).
+- `help` — print usage.
+
+If you invoke `xtatic` with no arguments, it runs `build` against the current directory. To build a different directory, pass it as the second argument: `xtatic build path/to/site`.
 
 To override the input or output location, add an `xtatic` section to `TOP_DIR/package.json`:
 
