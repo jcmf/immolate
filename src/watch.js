@@ -5,6 +5,7 @@ import { runLint } from './lint.js';
 
 export async function watch({ buildOptions, debounceMs = 100 }) {
   const { topDir, outputDir } = buildOptions;
+  const state = { error: null };
 
   let building = false;
   let dirty = false;
@@ -16,8 +17,10 @@ export async function watch({ buildOptions, debounceMs = 100 }) {
     try {
       await runLint({ topDir, outputDir });
       await build({ ...buildOptions, fs });
+      state.error = null;
       console.log(`[xtatic] built in ${Date.now() - start}ms`);
     } catch (e) {
+      state.error = e;
       console.error(`[xtatic] build failed: ${e.message}`);
       if (process.env.XTATIC_DEBUG) console.error(e.stack);
     } finally {
@@ -63,5 +66,5 @@ export async function watch({ buildOptions, debounceMs = 100 }) {
   });
 
   console.log(`[xtatic] watching ${topDir} (Ctrl-C to stop)`);
-  return watcher;
+  return { watcher, state };
 }

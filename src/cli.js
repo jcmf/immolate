@@ -55,6 +55,8 @@ let smartypantsConfig = true;
 let imageInlineThreshold;
 let styleInlineThreshold;
 let assetInlineThreshold;
+let errorLayout;
+let errorReloadInterval;
 
 const pkgPath = path.join(topDir, 'package.json');
 if (fs.existsSync(pkgPath)) {
@@ -85,6 +87,25 @@ if (fs.existsSync(pkgPath)) {
   }
   if (typeof pkg.xtatic?.assetInlineThreshold === 'number') {
     assetInlineThreshold = pkg.xtatic.assetInlineThreshold;
+  }
+  if (pkg.xtatic?.errorLayout != null) {
+    if (typeof pkg.xtatic.errorLayout !== 'string') {
+      console.error(
+        `xtatic.errorLayout must be a string path; got ${JSON.stringify(pkg.xtatic.errorLayout)}.`,
+      );
+      process.exit(1);
+    }
+    errorLayout = path.resolve(topDir, pkg.xtatic.errorLayout);
+  }
+  if (pkg.xtatic?.errorReloadInterval != null) {
+    const v = pkg.xtatic.errorReloadInterval;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
+      console.error(
+        `xtatic.errorReloadInterval must be a non-negative number (seconds); got ${JSON.stringify(v)}.`,
+      );
+      process.exit(1);
+    }
+    errorReloadInterval = v;
   }
 }
 
@@ -187,7 +208,13 @@ if (command === 'build') {
     port = n;
   }
   try {
-    await serve({ buildOptions, port, open: command === 'browse' });
+    await serve({
+      buildOptions,
+      port,
+      open: command === 'browse',
+      errorLayout,
+      errorReloadInterval,
+    });
   } catch (e) {
     if (process.env.XTATIC_DEBUG) throw e;
     console.error(e.message);

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { renderErrorPage } from './serve-error.js';
 import { watch } from './watch.js';
 
 const MIME = {
@@ -41,7 +42,7 @@ function send(res, status, headers, body) {
   res.end(body);
 }
 
-async function handle(outputDir, req, res) {
+async function handle(outputDir, req, res, ctx) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return send(
       res,
@@ -49,6 +50,23 @@ async function handle(outputDir, req, res) {
       { 'content-type': 'text/plain; charset=utf-8' },
       'Method Not Allowed',
     );
+  }
+  if (ctx?.state?.error) {
+    const { contentType, body } = await renderErrorPage(ctx.state.error, {
+      topDir: ctx.topDir,
+      errorLayout: ctx.errorLayout,
+      reloadInterval: ctx.errorReloadInterval,
+    });
+    const headers = {
+      'content-type': contentType,
+      'content-length': Buffer.byteLength(body),
+      'cache-control': 'no-store',
+    };
+    if (req.method === 'HEAD') {
+      res.writeHead(503, headers);
+      return res.end();
+    }
+    return send(res, 503, headers, body);
   }
   const parsed = new URL(req.url, 'http://x');
   const pathname = decodeURIComponent(parsed.pathname);
@@ -117,10 +135,19 @@ export async function serve({
   port = 3000,
   host = '127.0.0.1',
   open = false,
+  errorLayout,
+  errorReloadInterval = 2,
 }) {
-  await watch({ buildOptions });
+  if (process.env.FORCE_COLOR == null) process.env.FORCE_COLOR = '1';
+  const { state } = await watch({ buildOptions });
+  const ctx = {
+    state,
+    topDir: buildOptions.topDir,
+    errorLayout,
+    errorReloadInterval,
+  };
   const server = http.createServer((req, res) => {
-    handle(buildOptions.outputDir, req, res).catch((e) => {
+    handle(buildOptions.outputDir, req, res, ctx).catch((e) => {
       console.error(`[xtatic] server error: ${e.message}`);
       try {
         send(
