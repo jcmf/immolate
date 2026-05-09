@@ -14,8 +14,16 @@ async function loadWawoff2() {
   return wawoff2Promise;
 }
 
+// wawoff2 is a singleton WASM module; its `compress` returns a Uint8Array
+// view into the WASM heap that gets clobbered by the next call. Serialize so
+// the bytes are copied (Buffer.from) before another compress can run.
+let queue = Promise.resolve();
 export async function transcodeToWoff2(bytes) {
   const wawoff2 = await loadWawoff2();
-  const out = await wawoff2.compress(bytes);
-  return Buffer.isBuffer(out) ? out : Buffer.from(out);
+  const next = queue.then(async () => {
+    const out = await wawoff2.compress(bytes);
+    return Buffer.isBuffer(out) ? out : Buffer.from(out);
+  });
+  queue = next.catch(() => {});
+  return next;
 }

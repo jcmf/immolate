@@ -316,6 +316,24 @@ function findSystemTtf() {
   return null;
 }
 
+const SYSTEM_TTF_GROUP = [
+  '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+  '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+  '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
+  '/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf',
+];
+function findSystemTtfGroup() {
+  const found = SYSTEM_TTF_GROUP.filter((p) => {
+    try {
+      nodeFs.statSync(p);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  return found.length >= 3 ? found : null;
+}
+
 test(
   'real wawoff2 produces valid WOFF2 bytes from a system TTF via <Font>',
   { skip: findSystemTtf() == null ? 'no system TTF available' : false },
@@ -336,5 +354,32 @@ test(
     const written = fs.readFileSync(`/out${m[1]}`);
     assert.equal(written.slice(0, 4).toString('ascii'), 'wOF2');
     assert.ok(written.length < ttfBytes.length);
+  },
+);
+
+test(
+  'concurrent transcodes of distinct TTFs each yield valid wOF2 bytes',
+  { skip: findSystemTtfGroup() == null ? 'need 3+ system TTFs' : false },
+  async () => {
+    const ttfs = findSystemTtfGroup();
+    const fs = makeFs({});
+    fs.mkdirSync('/in', { recursive: true });
+    let body = "import {Font} from 'xtatic:font';\n\n";
+    ttfs.forEach((p, i) => {
+      fs.writeFileSync(`/in/f${i}.ttf`, nodeFs.readFileSync(p));
+      body += `<Font src="./f${i}.ttf" family="F${i}" />\n`;
+    });
+    fs.writeFileSync('/in/index.md', body);
+    await build({ inputDir: '/in', outputDir: '/out', fs });
+    const files = fs.readdirSync('/out/_assets');
+    assert.equal(files.length, ttfs.length);
+    for (const f of files) {
+      const bytes = fs.readFileSync(`/out/_assets/${f}`);
+      assert.equal(
+        bytes.slice(0, 4).toString('ascii'),
+        'wOF2',
+        `corrupt output: ${f}`,
+      );
+    }
   },
 );
