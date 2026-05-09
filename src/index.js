@@ -7,6 +7,7 @@ import { resolveLogicalPaths } from './paths.js';
 import { assembleTree } from './tree.js';
 import { renderModule } from './render.js';
 import { createRegistry } from './registry.js';
+import { wrapZipFs } from './zipfs.js';
 
 const MDX_EXT_RE = /\.mdx?$/;
 
@@ -90,6 +91,7 @@ export async function build({
       ? path.posix.resolve(layoutsDir)
       : path.posix.join(topDir, 'layouts');
   assertSafeOutputDir(outputDir, { topDir, inputDir, layoutsDir });
+  fs = wrapZipFs(fs);
   await fs.promises.rm(outputDir, { recursive: true, force: true });
   const files = await walkMdx(fs, inputDir);
   const entries = resolveLogicalPaths(files.map((f) => f.relPath));
