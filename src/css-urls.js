@@ -1,7 +1,12 @@
 import path from 'node:path';
+import {
+  TRANSCODABLE_FONT_EXTS,
+  transcodeToWoff2,
+} from './font-transcode.js';
 
 const URL_RE = /url\(([^)]+)\)/g;
 const EXT_RE = /\.([a-z0-9]+)$/i;
+const FORMAT_HINT_RE = /^(\s*)format\([^)]*\)/;
 
 function isPassthroughUrl(url) {
   return (
@@ -36,6 +41,7 @@ export async function rewriteCssUrls({
   topDir,
   assetRegistry,
   notFoundMessage,
+  transcode = transcodeToWoff2,
 }) {
   const sourceDir = path.posix.dirname(sourceAbsPath);
   const matches = [...css.matchAll(URL_RE)];
@@ -57,8 +63,14 @@ export async function rewriteCssUrls({
         }
         throw e;
       }
-      const ext = (EXT_RE.exec(absRef)?.[1] ?? 'bin').toLowerCase();
-      return assetRegistry.emit(bytes, ext);
+      let ext = (EXT_RE.exec(absRef)?.[1] ?? 'bin').toLowerCase();
+      let transcoded = false;
+      if (TRANSCODABLE_FONT_EXTS.has(ext)) {
+        bytes = await transcode(bytes);
+        ext = 'woff2';
+        transcoded = true;
+      }
+      return { url: assetRegistry.emit(bytes, ext), transcoded };
     }),
   );
 
@@ -66,9 +78,22 @@ export async function rewriteCssUrls({
   let last = 0;
   for (let i = 0; i < matches.length; i++) {
     const m = matches[i];
+    const r = replacements[i];
     out += css.slice(last, m.index);
-    out += replacements[i] == null ? m[0] : `url("${replacements[i]}")`;
-    last = m.index + m[0].length;
+    if (r == null) {
+      out += m[0];
+      last = m.index + m[0].length;
+    } else {
+      out += `url("${r.url}")`;
+      last = m.index + m[0].length;
+      if (r.transcoded) {
+        const hint = FORMAT_HINT_RE.exec(css.slice(last));
+        if (hint) {
+          out += `${hint[1]}format("woff2")`;
+          last += hint[0].length;
+        }
+      }
+    }
   }
   out += css.slice(last);
   return out;

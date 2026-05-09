@@ -46,13 +46,18 @@
   },
   "devDependencies": {
     "memfs": "^4.17.0",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "wawoff2": "^2.0.1"
   },
   "peerDependencies": {
-    "sharp": "^0.34.0"
+    "sharp": "^0.34.0",
+    "wawoff2": "^2.0.1"
   },
   "peerDependenciesMeta": {
     "sharp": {
+      "optional": true
+    },
+    "wawoff2": {
       "optional": true
     }
   },
