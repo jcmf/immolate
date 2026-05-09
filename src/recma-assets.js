@@ -28,11 +28,22 @@ const ASSET_LINK_RELS = new Set([
   'manifest',
 ]);
 
-function linkRelIsAsset(propsNode) {
+function linkRelTokens(propsNode) {
   const relProp = findProp(propsNode, 'rel');
-  if (!relProp || !isStringLiteral(relProp.value)) return false;
-  const parts = relProp.value.value.toLowerCase().split(/\s+/);
-  return parts.some((r) => ASSET_LINK_RELS.has(r));
+  if (!relProp || !isStringLiteral(relProp.value)) return null;
+  return relProp.value.value.toLowerCase().split(/\s+/);
+}
+
+function linkRelIsAsset(propsNode) {
+  const tokens = linkRelTokens(propsNode);
+  if (!tokens) return false;
+  return tokens.some((r) => ASSET_LINK_RELS.has(r));
+}
+
+function linkKind(propsNode) {
+  const tokens = linkRelTokens(propsNode);
+  if (tokens && tokens.includes('stylesheet')) return 'stylesheet';
+  return null;
 }
 
 // Each rule lists attributes to rewrite, optionally guarded by a predicate
@@ -44,12 +55,16 @@ const DEFAULT_TAG_RULES = {
   source: ['src'],
   audio: ['src'],
   video: ['src', 'poster'],
-  link: { attrs: ['href'], predicate: linkRelIsAsset },
+  link: { attrs: ['href'], predicate: linkRelIsAsset, getKind: linkKind },
 };
 
 function normalizeRule(rule) {
-  if (Array.isArray(rule)) return { attrs: rule, predicate: null };
-  return { attrs: rule.attrs, predicate: rule.predicate ?? null };
+  if (Array.isArray(rule)) return { attrs: rule, predicate: null, getKind: null };
+  return {
+    attrs: rule.attrs,
+    predicate: rule.predicate ?? null,
+    getKind: rule.getKind ?? null,
+  };
 }
 
 function isJsxCallee(node) {
@@ -88,22 +103,21 @@ function findProp(propsNode, name) {
   return null;
 }
 
-function makeAssetCall(originalValue, placement) {
+function makeAssetCall(originalValue, optsObj) {
   const callArgs = [originalValue];
-  if (placement) {
+  const entries = Object.entries(optsObj).filter(([, v]) => v != null);
+  if (entries.length > 0) {
     callArgs.push({
       type: 'ObjectExpression',
-      properties: [
-        {
-          type: 'Property',
-          key: { type: 'Identifier', name: 'placement' },
-          value: { type: 'Literal', value: placement },
-          kind: 'init',
-          shorthand: false,
-          computed: false,
-          method: false,
-        },
-      ],
+      properties: entries.map(([k, v]) => ({
+        type: 'Property',
+        key: { type: 'Identifier', name: k },
+        value: { type: 'Literal', value: v },
+        kind: 'init',
+        shorthand: false,
+        computed: false,
+        method: false,
+      })),
     });
   }
   return {
@@ -149,7 +163,7 @@ function processJsxCall(node, tagRules) {
   if (!rule) return false;
   const propsNode = node.arguments[1];
   if (propsNode?.type !== 'ObjectExpression') return false;
-  const { attrs, predicate } = normalizeRule(rule);
+  const { attrs, predicate, getKind } = normalizeRule(rule);
   if (predicate && !predicate(propsNode)) return false;
 
   let placement;
@@ -166,12 +180,13 @@ function processJsxCall(node, tagRules) {
     }
   }
   const passPlacement = placement && placement !== 'auto' ? placement : null;
+  const kind = getKind ? getKind(propsNode) : null;
 
   let rewrote = false;
   for (const attr of attrs) {
     const prop = findProp(propsNode, attr);
     if (!prop) continue;
-    prop.value = makeAssetCall(prop.value, passPlacement);
+    prop.value = makeAssetCall(prop.value, { placement: passPlacement, kind });
     rewrote = true;
   }
   return rewrote;

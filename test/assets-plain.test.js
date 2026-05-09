@@ -313,7 +313,7 @@ test('CSS via plain <link> with topDir-absolute url() resolves against topDir', 
   assert.match(cssOut, /url\("\/_assets\/[a-f0-9]+\.png"\)/);
 });
 
-test('inline CSS (data: URL) has its url() refs rewritten before encoding', async () => {
+test('inline CSS via <link rel=stylesheet> renders as <style>, with url() refs rewritten', async () => {
   const fs = makeFs({
     '/in/index.md': '<link rel="stylesheet" href="./main.css" />\n',
     '/in/main.css': ".bg { background: url('./bg.png'); }",
@@ -321,10 +321,34 @@ test('inline CSS (data: URL) has its url() refs rewritten before encoding', asyn
   await fs.promises.writeFile('/in/bg.png', bytes(8192));
   await build({ inputDir: '/in', outputDir: '/out', topDir: '/in', fs });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
-  const m = html.match(/href="data:text\/css;base64,([^"]+)"/);
-  assert.ok(m, `expected inline data: link in: ${html}`);
-  const decoded = Buffer.from(m[1], 'base64').toString('utf8');
-  assert.match(decoded, /url\("\/_assets\/[a-f0-9]+\.png"\)/);
+  const m = html.match(/<style>([\s\S]*?)<\/style>/);
+  assert.ok(m, `expected inline <style> in: ${html}`);
+  assert.match(m[1], /url\("\/_assets\/[a-f0-9]+\.png"\)/);
+  assert.doesNotMatch(html, /data:text\/css/);
+  assert.doesNotMatch(html, /<link\b[^>]*\bhref="\.\/main\.css"/);
+});
+
+test('inline CSS via <link rel=stylesheet media="print"> carries media to <style>', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      '<link rel="stylesheet" media="print" href="./print.css" />\n',
+    '/in/print.css': '.p { color: red; }',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', topDir: '/in', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<style media="print">\.p \{ color: red; \}<\/style>/);
+});
+
+test('explicit data-xtatic-placement="inline" on <link rel=stylesheet> still becomes <style>', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      '<link rel="stylesheet" href="./big.css" data-xtatic-placement="inline" />\n',
+  });
+  await fs.promises.writeFile('/in/big.css', bytes(8192, 0x20));
+  await build({ inputDir: '/in', outputDir: '/out', topDir: '/in', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<style>[ ]+<\/style>/);
+  assert.doesNotMatch(html, /<link\b/);
 });
 
 test('CSS missing url() ref surfaces a clear error', async () => {

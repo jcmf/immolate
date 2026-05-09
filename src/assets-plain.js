@@ -95,6 +95,7 @@ export function createPlainAssetRegistry({
         absSrc,
         srcDisplay: value,
         placement,
+        kind: opts.kind ?? null,
       });
       return token;
     };
@@ -203,14 +204,21 @@ export function createPlainAssetRegistry({
     }
 
     const tokenToResolver = new Map();
+    const stylesheetInlineTokens = new Map();
 
     for (const entry of bySrc.values()) {
       const placement = decidePlacement(entry);
       switch (placement) {
         case 'inline': {
           const url = `data:${mimeFromExt(entry.ext)};base64,${entry.bytes.toString('base64')}`;
+          const cssText =
+            entry.ext === 'css' ? entry.bytes.toString('utf8') : null;
           for (const call of entry.calls) {
-            tokenToResolver.set(call.token, () => url);
+            if (cssText != null && call.kind === 'stylesheet') {
+              stylesheetInlineTokens.set(call.token, cssText);
+            } else {
+              tokenToResolver.set(call.token, () => url);
+            }
           }
           break;
         }
@@ -243,8 +251,27 @@ export function createPlainAssetRegistry({
     }
 
     return function substitute(html, outPath) {
-      if (tokenToResolver.size === 0) return html;
-      return html.replace(TOKEN_RE, (m) => {
+      if (tokenToResolver.size === 0 && stylesheetInlineTokens.size === 0) {
+        return html;
+      }
+      let out = html;
+      for (const [token, css] of stylesheetInlineTokens) {
+        const re = new RegExp(
+          `<link\\b([^>]*\\bhref="${token}"[^>]*)>`,
+          'g',
+        );
+        out = out.replace(re, (_, attrs) => {
+          const cleaned = attrs
+            .replace(/\s+rel\s*=\s*"[^"]*"/i, '')
+            .replace(/\s+href\s*=\s*"[^"]*"/i, '')
+            .replace(/\s*\/$/, '')
+            .trim();
+          const sep = cleaned ? ' ' : '';
+          return `<style${sep}${cleaned}>${css}</style>`;
+        });
+      }
+      if (tokenToResolver.size === 0) return out;
+      return out.replace(TOKEN_RE, (m) => {
         const resolver = tokenToResolver.get(m);
         if (!resolver) return m;
         return escAttrValue(resolver(outPath));
