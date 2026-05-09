@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import remarkSmartypants from 'remark-smartypants';
 import { build } from './index.js';
 import { runLint } from './lint.js';
 import { serve } from './serve.js';
@@ -50,6 +51,7 @@ let inputDir = 'pages';
 let outputDir = 'site';
 let layoutsDir = 'layouts';
 let remarkPluginSpecs = [];
+let smartypantsConfig = true;
 let imageInlineThreshold;
 let styleInlineThreshold;
 let assetInlineThreshold;
@@ -61,6 +63,20 @@ if (fs.existsSync(pkgPath)) {
   if (pkg.xtatic?.outputDir) outputDir = pkg.xtatic.outputDir;
   if (pkg.xtatic?.layoutsDir) layoutsDir = pkg.xtatic.layoutsDir;
   if (pkg.xtatic?.remarkPlugins) remarkPluginSpecs = pkg.xtatic.remarkPlugins;
+  if (pkg.xtatic && 'smartypants' in pkg.xtatic) {
+    const v = pkg.xtatic.smartypants;
+    if (
+      v !== true &&
+      v !== false &&
+      !(v && typeof v === 'object' && !Array.isArray(v))
+    ) {
+      console.error(
+        `xtatic.smartypants must be true, false, or an options object; got ${JSON.stringify(v)}.`,
+      );
+      process.exit(1);
+    }
+    smartypantsConfig = v;
+  }
   if (typeof pkg.xtatic?.imageInlineThreshold === 'number') {
     imageInlineThreshold = pkg.xtatic.imageInlineThreshold;
   }
@@ -127,6 +143,14 @@ try {
   console.error(e.message);
   console.error('\n(set XTATIC_DEBUG=1 for the full stack)');
   process.exit(1);
+}
+
+if (smartypantsConfig !== false) {
+  const smartypants =
+    smartypantsConfig && typeof smartypantsConfig === 'object'
+      ? [remarkSmartypants, smartypantsConfig]
+      : remarkSmartypants;
+  remarkPlugins = [smartypants, ...remarkPlugins];
 }
 
 const buildOptions = {

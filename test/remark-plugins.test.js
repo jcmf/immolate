@@ -169,3 +169,66 @@ test('CLI errors clearly when a configured remark plugin is not installed', () =
     /Cannot resolve remark plugin "nope-not-installed" from /,
   );
 });
+
+test('CLI applies remark-smartypants by default', () => {
+  const top = setupTopDir('cli-smartypants-default', {
+    pkg: { type: 'module' },
+    files: { 'pages/index.md': "# It's a \"test\" -- really\n" },
+  });
+  const r = spawnSync(process.execPath, [cli, 'build', top], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const html = nodeFs.readFileSync(
+    path.join(top, 'site', 'index.html'),
+    'utf8',
+  );
+  // smartypants converts straight quotes to curly and -- to em-dash.
+  assert.match(html, /’/); // ’
+  assert.match(html, /“/); // “
+  assert.match(html, /”/); // ”
+  assert.match(html, /—/); // —
+});
+
+test('CLI honors xtatic.smartypants=false to disable smartypants', () => {
+  const top = setupTopDir('cli-smartypants-off', {
+    pkg: { type: 'module', xtatic: { smartypants: false } },
+    files: { 'pages/index.md': "# It's a \"test\" -- really\n" },
+  });
+  const r = spawnSync(process.execPath, [cli, 'build', top], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const html = nodeFs.readFileSync(
+    path.join(top, 'site', 'index.html'),
+    'utf8',
+  );
+  assert.doesNotMatch(html, /’|“|”|—/);
+  assert.match(html, /&#x27;|'/); // straight apostrophe (escaped or raw)
+});
+
+test('CLI passes xtatic.smartypants object as plugin options', () => {
+  const top = setupTopDir('cli-smartypants-opts', {
+    pkg: {
+      type: 'module',
+      xtatic: { smartypants: { dashes: false } },
+    },
+    files: { 'pages/index.md': "# It's a -- test\n" },
+  });
+  const r = spawnSync(process.execPath, [cli, 'build', top], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const html = nodeFs.readFileSync(
+    path.join(top, 'site', 'index.html'),
+    'utf8',
+  );
+  // quotes still transformed, but dashes left alone.
+  assert.match(html, /’/);
+  assert.doesNotMatch(html, /—/);
+  assert.match(html, /--/);
+});
+
+test('CLI rejects an invalid xtatic.smartypants value', () => {
+  const top = setupTopDir('cli-smartypants-bad', {
+    pkg: { xtatic: { smartypants: 'yes' } },
+    files: { 'pages/index.md': '# x\n' },
+  });
+  const r = spawnSync(process.execPath, [cli, 'build', top], { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /xtatic\.smartypants must be true, false, or an options object/);
+});

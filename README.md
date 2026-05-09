@@ -54,6 +54,16 @@ Relative paths in config are resolved against `TOP_DIR`, not the working directo
 
 Markdown is rendered normally. JSX inside MDX is evaluated against xtatic's JSX runtime, which produces HTML strings directly — no React, no virtual DOM.
 
+[`remark-smartypants`](https://github.com/silvenon/remark-smartypants) is enabled by default, so straight quotes/apostrophes/dashes/ellipses in prose become typographic ones. To disable it, set `xtatic.smartypants` to `false` in `package.json`; to override its options, set it to an options object (passed through to the plugin):
+
+```json
+{
+  "xtatic": {
+    "smartypants": { "dashes": false }
+  }
+}
+```
+
 Frontmatter and named exports become metadata on the compiled module:
 
 ```mdx
