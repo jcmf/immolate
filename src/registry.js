@@ -59,7 +59,7 @@ export function isJs(absPath) {
   return JS_EXT_RE.test(absPath);
 }
 
-export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, styleRegistry, plainAssetRegistry }) {
+export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, styleRegistry, fontRegistry, plainAssetRegistry }) {
   const mdxModules = new Map();
   const jsxModules = new Map();
   const jsModules = new Map();
@@ -162,6 +162,14 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
             );
           }
           return { Style: styleRegistry.forImporter(importerAbsPath) };
+        }
+        if (spec === 'xtatic:font') {
+          if (!fontRegistry) {
+            throw new Error(
+              `"xtatic:font" was imported from "${displayPath(importerAbsPath)}" but no font registry was provided to createRegistry.`,
+            );
+          }
+          return { Font: fontRegistry.forImporter(importerAbsPath) };
         }
         const available = BUILTIN_SPECS.map((s) => `"${s}"`).join(', ');
         throw new Error(

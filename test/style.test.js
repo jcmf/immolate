@@ -128,6 +128,23 @@ test('fonts referenced via @font-face url() resolve and emit', async () => {
   assert.match(cssOut, /url\("\/_assets\/[a-f0-9]+\.woff2"\)/);
 });
 
+test('.ttf url() inside CSS emits as-is (no auto-transcode); use <Font> for woff2', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      "import {Style} from 'xtatic:style';\n\n" +
+      '<Style src="./fonts.css" inlineThreshold={0} />\n',
+    '/in/fonts.css':
+      "@font-face { font-family: 'X'; src: url('./fx.ttf') format('truetype'); }",
+    '/in/fx.ttf': 'TTFRAW',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  const linkHref = html.match(/href="(\/_assets\/[a-f0-9]+\.css)"/)[1];
+  const cssOut = await fs.promises.readFile(`/out${linkHref}`, 'utf8');
+  assert.match(cssOut, /url\("\/_assets\/[a-f0-9]+\.ttf"\) format\('truetype'\)/);
+  assert.doesNotMatch(cssOut, /woff2/);
+});
+
 test('pass-through attrs survive: media on <style> and on <link>', async () => {
   const fs = makeFs({
     '/in/index.md':
@@ -248,7 +265,7 @@ test('the unknown-builtin error lists xtatic:style', async () => {
   });
   await assert.rejects(
     () => build({ inputDir: '/in', outputDir: '/out', fs }),
-    /"xtatic:builtins", "xtatic:image", "xtatic:style"/,
+    /"xtatic:builtins", "xtatic:image", "xtatic:style", "xtatic:font"/,
   );
 });
 

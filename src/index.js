@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { createAssetRegistry } from './assets.js';
 import { createPlainAssetRegistry } from './assets-plain.js';
+import { createFontRegistry } from './font.js';
 import { createImageRegistry } from './image.js';
 import { createStyleRegistry } from './style.js';
 import { resolveLogicalPaths } from './paths.js';
@@ -113,6 +114,11 @@ export async function build({
     assetRegistry,
     defaultInlineThreshold: styleInlineThreshold,
   });
+  const fontRegistry = createFontRegistry({
+    fs,
+    topDir,
+    assetRegistry,
+  });
   const plainAssetRegistry = createPlainAssetRegistry({
     fs,
     topDir,
@@ -126,6 +132,7 @@ export async function build({
     remarkPlugins,
     imageRegistry,
     styleRegistry,
+    fontRegistry,
     plainAssetRegistry,
   });
   for (const entry of entries) {
@@ -145,11 +152,15 @@ export async function build({
   renderTree(root, [], outputDir, pages);
   const imageSubstitute = await imageRegistry.processAll();
   const styleSubstitute = await styleRegistry.processAll();
+  const fontSubstitute = await fontRegistry.processAll();
   const assetSubstitute = await plainAssetRegistry.processAll(pages);
   await assetRegistry.writeAll();
   await plainAssetRegistry.writeAll();
   const substitute = (html, outPath) =>
-    assetSubstitute(styleSubstitute(imageSubstitute(html)), outPath);
+    assetSubstitute(
+      fontSubstitute(styleSubstitute(imageSubstitute(html))),
+      outPath,
+    );
   await writePages(pages, substitute, fs);
 }
 

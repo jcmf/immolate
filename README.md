@@ -222,6 +222,36 @@ Any extra props (`media`, `nonce`, `crossorigin`, `id`, `data-*`, etc.) pass thr
 
 **Caveats:** `@import "..."` (the bare-string form) is not rewritten — only `url(...)` tokens are. SCSS / minification / autoprefixing are not built in; pre-compile to CSS yourself for now (a transform hook is on the roadmap).
 
+### `<Font>`
+
+`xtatic:font` exports a build-time `@font-face` component meant for `<head>`. Each call expands to a `<style>` with one `@font-face` rule (and an optional `<link rel="preload">`) pointing at a content-addressed copy of the font under `OUTPUT_DIR/_assets/`.
+
+```mdx
+import {Font} from 'xtatic:font';
+
+<Font src="./fonts/Inter-Regular.ttf" family="Inter" weight={400} />
+<Font src="./fonts/Inter-Bold.ttf"    family="Inter" weight={700} />
+<Font src="./fonts/Inter-Italic.ttf"  family="Inter" weight={400} style="italic" display="swap" preload />
+```
+
+`.ttf` and `.otf` sources are transcoded to WOFF2 at build time via [wawoff2](https://github.com/fontello/wawoff2.js); `.woff` and `.woff2` sources are emitted verbatim. `wawoff2` is an optional peer dep — install it with `npm install wawoff2` the first time you use a `.ttf`/`.otf` source.
+
+**Props:**
+
+- `src` (required) — path to a `.ttf`, `.otf`, `.woff`, or `.woff2` file. Same resolution rules as `<Image>`/`<Style>`.
+- `family` (required) — the CSS `font-family` value. Quoted in the output and CSS-escaped.
+- `weight` — number or string (e.g. `400`, `"100 900"` for variable fonts). Omitted when absent (browser defaults to `normal`).
+- `style` — `"normal" | "italic" | "oblique"`. Omitted when absent.
+- `display` — `"auto" | "block" | "swap" | "fallback" | "optional"`. Omitted when absent (browser default = `auto`; `<Font>` does not impose `swap`).
+- `unicodeRange` — string passed through to `unicode-range:` verbatim.
+- `preload` — boolean (default `false`). When set, a `<link rel="preload" as="font" type="font/woff2" href="…" crossorigin>` is emitted just before the `<style>` block.
+
+Identical `src` files dedupe to a single asset across the whole site, regardless of how many `<Font>` calls reference them. Output URLs are absolute (`/_assets/…`); the site is expected to be served from the root.
+
+`<Font>` rejects unknown props (no silent pass-through) — if you need to customize the emitted `<style>` or `<link>` further, write the markup by hand.
+
+**Note on `<Style>` interaction:** writing your own `@font-face { src: url('./x.ttf') }` inside a `<Style>`-loaded CSS file no longer auto-transcodes the TTF to WOFF2 — the CSS path emits the file as-is now. Use `<Font>` for the transcode behavior.
+
 ## Lint
 
 `xtatic` runs ESLint over your `.md`/`.mdx`/`.jsx`/`.js` files automatically before each build, with an opinionated zero-config baseline focused on catching import bugs early — typo'd named imports, missing files, default-vs-named confusion on the `xtatic:*` builtins. A lint failure exits 1 with the formatted ESLint output before any HTML is written.
@@ -231,7 +261,7 @@ Any extra props (`media`, `nonce`, `crossorigin`, `id`, `data-*`, etc.) pass thr
 - `import/no-unresolved` — flags imports of files that don't exist on disk.
 - `import/named` — flags `import {Foo}` when `Foo` isn't actually exported.
 - `import/no-duplicates` — flags two `import` statements for the same module.
-- `xtatic/builtin-imports` — flags default imports, namespace imports, and unknown export names against `xtatic:builtins`/`xtatic:image`/`xtatic:style`. Errors carry the suggested fix (e.g. *"`xtatic:style` has no default export. Use `import {Style} from 'xtatic:style'` instead."*).
+- `xtatic/builtin-imports` — flags default imports, namespace imports, and unknown export names against `xtatic:builtins`/`xtatic:image`/`xtatic:style`/`xtatic:font`. Errors carry the suggested fix (e.g. *"`xtatic:style` has no default export. Use `import {Style} from 'xtatic:style'` instead."*).
 - `import/default` and `no-undef` — applied to `.js`/`.jsx` only. Off for `.md`/`.mdx` because xtatic's default-import semantics there bind the whole module object rather than `mm.default` (a deliberate divergence from ESM).
 
 The config is currently frozen — no user override knob yet; that's a planned follow-up. `eslint`, `eslint-plugin-import`, and `eslint-plugin-mdx` are hard runtime dependencies, so there's nothing to install.
