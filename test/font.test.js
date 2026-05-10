@@ -421,119 +421,104 @@ test('Font coexists with Style and Image on the same page', async () => {
   assert.match(html, /<img src="data:image\/svg\+xml;base64,/);
 });
 
-const SYSTEM_TTF_CANDIDATES = [
-  '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-  '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
-  '/usr/share/fonts/dejavu/DejaVuSans.ttf',
-  '/usr/share/fonts/TTF/DejaVuSans.ttf',
-];
-function findSystemTtf() {
-  for (const p of SYSTEM_TTF_CANDIDATES) {
-    try {
-      nodeFs.statSync(p);
-      return p;
-    } catch {}
-  }
-  return null;
+// A small real TrueType font (a printable-ASCII subset of Noto Sans, OFL) is
+// committed under test/fixtures/ so the "real wawoff2 / real subset-font" tests
+// below always have a font to chew on — no hunting for a system font, no skips.
+// See test/fixtures/README.md for provenance.
+const FIXTURE_TTF = nodeFs.readFileSync(
+  new URL('./fixtures/test-font.ttf', import.meta.url),
+);
+
+// Distinct, valid TrueType files derived from the fixture (subset-font is a dev
+// dependency) — used to drive several transcodes that must NOT share bytes.
+async function distinctTtfsFromFixture(texts) {
+  const subsetFont = (await import('subset-font')).default;
+  return Promise.all(
+    texts.map((t) => subsetFont(FIXTURE_TTF, t, { targetFormat: 'truetype' })),
+  );
 }
 
-const SYSTEM_TTF_GROUP = [
-  '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-  '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-  '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',
-  '/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf',
-];
-function findSystemTtfGroup() {
-  const found = SYSTEM_TTF_GROUP.filter((p) => {
-    try {
-      nodeFs.statSync(p);
-      return true;
-    } catch {
-      return false;
-    }
+test('real wawoff2 transcodes the bundled TTF to valid WOFF2 via <Font>', async () => {
+  const fs = makeFs({});
+  fs.mkdirSync('/in', { recursive: true });
+  fs.writeFileSync('/in/font.ttf', FIXTURE_TTF);
+  fs.writeFileSync(
+    '/in/index.md',
+    "import {Font} from 'xtatic:font';\n\n" +
+      '<Font src="./font.ttf" family="X" />\n',
+  );
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = fs.readFileSync('/out/index.html', 'utf8');
+  const m = html.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/);
+  assert.ok(m, `no font asset URL in: ${html}`);
+  const written = fs.readFileSync(`/out${m[1]}`);
+  assert.equal(written.slice(0, 4).toString('ascii'), 'wOF2');
+  assert.ok(written.length < FIXTURE_TTF.length);
+});
+
+test('real subset-font: text= shrinks the bundled TTF and emits valid WOFF2 via <Font>', async () => {
+  const fs = makeFs({});
+  fs.mkdirSync('/in', { recursive: true });
+  fs.writeFileSync('/in/font.ttf', FIXTURE_TTF);
+  fs.writeFileSync(
+    '/in/index.md',
+    "import {Font} from 'xtatic:font';\n\n" +
+      '<Font src="./font.ttf" family="Logo" text="xtatic" />\n' +
+      // a second call asking for the SAME glyph set must dedupe to one asset
+      '<Font src="./font.ttf" family="LogoAlt" text="cixat" />\n',
+  );
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = fs.readFileSync('/out/index.html', 'utf8');
+  const urls = [...html.matchAll(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/g)].map(
+    (m) => m[1],
+  );
+  assert.equal(urls.length, 2);
+  assert.equal(urls[0], urls[1], 'same glyph set should share one asset');
+  const written = fs.readFileSync(`/out${urls[0]}`);
+  assert.equal(written.slice(0, 4).toString('ascii'), 'wOF2');
+  // a 5-glyph subset must be well under the (already small) ASCII fixture
+  assert.ok(
+    written.length < FIXTURE_TTF.length / 2,
+    `subset not small enough: ${written.length} vs ${FIXTURE_TTF.length}`,
+  );
+});
+
+test('concurrent transcodes of distinct TTFs each yield valid WOFF2 bytes', async () => {
+  const ttfs = await distinctTtfsFromFixture(['abc', 'defg', 'hijkl', 'mn']);
+  const fs = makeFs({});
+  fs.mkdirSync('/in', { recursive: true });
+  let body = "import {Font} from 'xtatic:font';\n\n";
+  ttfs.forEach((bytes, i) => {
+    fs.writeFileSync(`/in/f${i}.ttf`, bytes);
+    body += `<Font src="./f${i}.ttf" family="F${i}" />\n`;
   });
-  return found.length >= 3 ? found : null;
-}
+  fs.writeFileSync('/in/index.md', body);
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const files = fs.readdirSync('/out/_assets');
+  assert.equal(files.length, ttfs.length);
+  for (const f of files) {
+    const bytes = fs.readFileSync(`/out/_assets/${f}`);
+    assert.equal(bytes.slice(0, 4).toString('ascii'), 'wOF2', `corrupt: ${f}`);
+  }
+});
 
-test(
-  'real wawoff2 produces valid WOFF2 bytes from a system TTF via <Font>',
-  { skip: findSystemTtf() == null ? 'no system TTF available' : false },
-  async () => {
-    const ttfBytes = nodeFs.readFileSync(findSystemTtf());
-    const fs = makeFs({});
-    fs.mkdirSync('/in', { recursive: true });
-    fs.writeFileSync('/in/font.ttf', ttfBytes);
-    fs.writeFileSync(
-      '/in/index.md',
-      "import {Font} from 'xtatic:font';\n\n" +
-        '<Font src="./font.ttf" family="X" />\n',
-    );
-    await build({ inputDir: '/in', outputDir: '/out', fs });
-    const html = fs.readFileSync('/out/index.html', 'utf8');
-    const m = html.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/);
-    assert.ok(m);
-    const written = fs.readFileSync(`/out${m[1]}`);
-    assert.equal(written.slice(0, 4).toString('ascii'), 'wOF2');
-    assert.ok(written.length < ttfBytes.length);
-  },
-);
-
-test(
-  'real subset-font: text= shrinks a system TTF and emits valid WOFF2 via <Font>',
-  { skip: findSystemTtf() == null ? 'no system TTF available' : false },
-  async () => {
-    const ttfPath = findSystemTtf();
-    const ttfBytes = nodeFs.readFileSync(ttfPath);
-    const fs = makeFs({});
-    fs.mkdirSync('/in', { recursive: true });
-    fs.writeFileSync('/in/font.ttf', ttfBytes);
-    fs.writeFileSync(
-      '/in/index.md',
-      "import {Font} from 'xtatic:font';\n\n" +
-        '<Font src="./font.ttf" family="Logo" text="xtatic" />\n' +
-        // a second call asking for the SAME glyph set must dedupe to one asset
-        '<Font src="./font.ttf" family="LogoAlt" text="cixat" />\n',
-    );
-    await build({ inputDir: '/in', outputDir: '/out', fs });
-    const html = fs.readFileSync('/out/index.html', 'utf8');
-    const urls = [...html.matchAll(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/g)].map(
-      (m) => m[1],
-    );
-    assert.equal(urls.length, 2);
-    assert.equal(urls[0], urls[1], 'same glyph set should share one asset');
-    const written = fs.readFileSync(`/out${urls[0]}`);
-    assert.equal(written.slice(0, 4).toString('ascii'), 'wOF2');
-    // a 6-glyph subset of a full Unicode face must be dramatically smaller
-    assert.ok(
-      written.length < ttfBytes.length / 4,
-      `subset not small enough: ${written.length} vs ${ttfBytes.length}`,
-    );
-  },
-);
-
-test(
-  'concurrent transcodes of distinct TTFs each yield valid wOF2 bytes',
-  { skip: findSystemTtfGroup() == null ? 'need 3+ system TTFs' : false },
-  async () => {
-    const ttfs = findSystemTtfGroup();
-    const fs = makeFs({});
-    fs.mkdirSync('/in', { recursive: true });
-    let body = "import {Font} from 'xtatic:font';\n\n";
-    ttfs.forEach((p, i) => {
-      fs.writeFileSync(`/in/f${i}.ttf`, nodeFs.readFileSync(p));
-      body += `<Font src="./f${i}.ttf" family="F${i}" />\n`;
-    });
-    fs.writeFileSync('/in/index.md', body);
-    await build({ inputDir: '/in', outputDir: '/out', fs });
-    const files = fs.readdirSync('/out/_assets');
-    assert.equal(files.length, ttfs.length);
-    for (const f of files) {
-      const bytes = fs.readFileSync(`/out/_assets/${f}`);
-      assert.equal(
-        bytes.slice(0, 4).toString('ascii'),
-        'wOF2',
-        `corrupt output: ${f}`,
-      );
-    }
-  },
-);
+test('concurrent subsets of one TTF to distinct glyph sets each yield valid WOFF2', async () => {
+  const fs = makeFs({});
+  fs.mkdirSync('/in', { recursive: true });
+  fs.writeFileSync('/in/font.ttf', FIXTURE_TTF);
+  const texts = ['a', 'bc', 'def', 'ghij'];
+  fs.writeFileSync(
+    '/in/index.md',
+    "import {Font} from 'xtatic:font';\n\n" +
+      texts
+        .map((t, i) => `<Font src="./font.ttf" family="F${i}" text="${t}" />\n`)
+        .join(''),
+  );
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const files = fs.readdirSync('/out/_assets');
+  assert.equal(files.length, texts.length);
+  for (const f of files) {
+    const bytes = fs.readFileSync(`/out/_assets/${f}`);
+    assert.equal(bytes.slice(0, 4).toString('ascii'), 'wOF2', `corrupt: ${f}`);
+  }
+});
