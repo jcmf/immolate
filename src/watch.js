@@ -10,9 +10,17 @@ export async function watch({ buildOptions, debounceMs = 100 }) {
   let building = false;
   let dirty = false;
   let timer = null;
+  // Pending promise while a build is in flight, null when idle. Lets serve mode
+  // hold a request until the (re)build that may be wiping/rewriting outputDir
+  // has finished, instead of serving 404s or a half-written tree.
+  let inFlight = null;
 
   async function runOnce() {
     building = true;
+    let done;
+    inFlight = new Promise((r) => {
+      done = r;
+    });
     const start = Date.now();
     try {
       await runLint({ topDir, outputDir });
@@ -25,11 +33,17 @@ export async function watch({ buildOptions, debounceMs = 100 }) {
       if (process.env.XTATIC_DEBUG) console.error(e.stack);
     } finally {
       building = false;
+      inFlight = null;
+      done();
       if (dirty) {
         dirty = false;
         schedule();
       }
     }
+  }
+
+  async function whenIdle() {
+    while (inFlight) await inFlight;
   }
 
   function schedule() {
@@ -66,5 +80,5 @@ export async function watch({ buildOptions, debounceMs = 100 }) {
   });
 
   console.log(`[xtatic] watching ${topDir} (Ctrl-C to stop)`);
-  return { watcher, state };
+  return { watcher, state, whenIdle };
 }

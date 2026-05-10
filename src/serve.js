@@ -51,6 +51,10 @@ async function handle(outputDir, req, res, ctx) {
       'Method Not Allowed',
     );
   }
+  // Hold the request until any in-progress (re)build settles — outputDir is
+  // wiped and rewritten during a build, so serving mid-build means 404s or a
+  // partial tree.
+  if (ctx?.whenIdle) await ctx.whenIdle();
   if (ctx?.state?.error) {
     const { contentType, body } = await renderErrorPage(ctx.state.error, {
       topDir: ctx.topDir,
@@ -139,9 +143,10 @@ export async function serve({
   errorReloadInterval = 2,
 }) {
   if (process.env.FORCE_COLOR == null) process.env.FORCE_COLOR = '1';
-  const { state } = await watch({ buildOptions });
+  const { state, whenIdle } = await watch({ buildOptions });
   const ctx = {
     state,
+    whenIdle,
     topDir: buildOptions.topDir,
     errorLayout,
     errorReloadInterval,
