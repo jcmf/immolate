@@ -12,8 +12,14 @@ function makeFs(files) {
 
 const STUB_WOFF2 = Buffer.from('wOF2-fake-bytes');
 const stubTranscode = async (_bytes) => STUB_WOFF2;
+// Echo the requested glyph set into the output bytes so tests can assert what
+// the subsetter was handed (and so distinct glyph sets produce distinct bytes).
+const stubSubset = async (_bytes, text) => Buffer.from(`wOF2-subset[${text}]`);
 
-function makeRegistry(files, { transcode = stubTranscode } = {}) {
+function makeRegistry(
+  files,
+  { transcode = stubTranscode, subset = stubSubset } = {},
+) {
   const fs = makeFs(files);
   const assetRegistry = createAssetRegistry({ fs, outputDir: '/out' });
   const fontRegistry = createFontRegistry({
@@ -21,13 +27,15 @@ function makeRegistry(files, { transcode = stubTranscode } = {}) {
     topDir: '/in',
     assetRegistry,
     transcode,
+    subset,
   });
   return { fs, assetRegistry, fontRegistry };
 }
 
-async function renderOne(files, props, { transcode } = {}) {
+async function renderOne(files, props, { transcode, subset } = {}) {
   const { fs, assetRegistry, fontRegistry } = makeRegistry(files, {
     transcode,
+    subset,
   });
   const Font = fontRegistry.forImporter('/in/page.mdx');
   const { html: token } = Font(props);
@@ -251,6 +259,119 @@ test('a missing source file surfaces a clear error', async () => {
   );
 });
 
+// ---- subsetting via the `text` prop ----
+
+test('text subsets the source and emits the result as woff2', async () => {
+  const { html, fs } = await renderOne(
+    { '/in/logo.otf': 'OTFRAW' },
+    { src: './logo.otf', family: 'Logo', text: 'xtatic' },
+  );
+  const m = html.match(
+    /<style>@font-face\{font-family:"Logo";src:url\("(\/_assets\/[a-f0-9]+\.woff2)"\) format\("woff2"\)\}<\/style>/,
+  );
+  assert.ok(m, `unexpected html: ${html}`);
+  const written = await fs.promises.readFile(`/out${m[1]}`, 'utf8');
+  // canonical glyph set for "xtatic" = sorted unique chars
+  assert.equal(written, 'wOF2-subset[acitx]');
+});
+
+test('text subsets a .woff2 source too (not just transcodable formats)', async () => {
+  let transcodeCalled = false;
+  const { html } = await renderOne(
+    { '/in/f.woff2': 'WOFF2RAW' },
+    { src: './f.woff2', family: 'X', text: 'abc' },
+    {
+      transcode: async () => {
+        transcodeCalled = true;
+        return Buffer.from('');
+      },
+    },
+  );
+  assert.equal(transcodeCalled, false);
+  assert.match(html, /url\("\/_assets\/[a-f0-9]+\.woff2"\) format\("woff2"\)/);
+});
+
+test('text on a .ttf source subsets instead of transcoding', async () => {
+  let transcodeCalled = false;
+  const { html } = await renderOne(
+    { '/in/f.ttf': 'TTFRAW' },
+    { src: './f.ttf', family: 'X', text: 'abc' },
+    {
+      transcode: async () => {
+        transcodeCalled = true;
+        return STUB_WOFF2;
+      },
+    },
+  );
+  assert.equal(transcodeCalled, false);
+  assert.match(html, /format\("woff2"\)/);
+});
+
+test('subset glyph set is canonicalized — "ab" and "ba" share one asset', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistry({
+    '/in/f.otf': 'OTFRAW',
+  });
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  Font({ src: './f.otf', family: 'X', text: 'ab' });
+  Font({ src: './f.otf', family: 'Y', text: 'baa' });
+  await fontRegistry.processAll();
+  await assetRegistry.writeAll();
+  const files = await fs.promises.readdir('/out/_assets');
+  assert.equal(files.length, 1);
+});
+
+test('different glyph sets for the same src produce different assets', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistry({
+    '/in/f.otf': 'OTFRAW',
+  });
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  Font({ src: './f.otf', family: 'X', text: 'ab' });
+  Font({ src: './f.otf', family: 'X', text: 'abc' });
+  await fontRegistry.processAll();
+  await assetRegistry.writeAll();
+  const files = await fs.promises.readdir('/out/_assets');
+  assert.equal(files.length, 2);
+});
+
+test('a subsetted and a non-subsetted reference to one src are distinct assets', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistry({
+    '/in/f.woff2': 'WOFF2RAW',
+  });
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  Font({ src: './f.woff2', family: 'X' });
+  Font({ src: './f.woff2', family: 'X', text: 'abc' });
+  await fontRegistry.processAll();
+  await assetRegistry.writeAll();
+  const files = await fs.promises.readdir('/out/_assets');
+  assert.equal(files.length, 2);
+});
+
+test('preload with text uses type="font/woff2"', async () => {
+  const { html } = await renderOne(
+    { '/in/f.woff': 'WOFFRAW' },
+    { src: './f.woff', family: 'X', text: 'abc', preload: true },
+  );
+  assert.match(html, /<link rel="preload" as="font" type="font\/woff2" /);
+});
+
+test('empty text is rejected', async () => {
+  const { fontRegistry } = makeRegistry({});
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  assert.throws(
+    () => Font({ src: './f.ttf', family: 'X', text: '' }),
+    /text must be a non-empty string \(in "page\.mdx"\)/,
+  );
+});
+
+test('non-string text is rejected', async () => {
+  const { fontRegistry } = makeRegistry({});
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  assert.throws(
+    () => Font({ src: './f.ttf', family: 'X', text: 123 }),
+    /text must be a non-empty string/,
+  );
+});
+
 // ---- end-to-end through build() ----
 
 test('Font is usable end-to-end from an .md page', async () => {
@@ -354,6 +475,39 @@ test(
     const written = fs.readFileSync(`/out${m[1]}`);
     assert.equal(written.slice(0, 4).toString('ascii'), 'wOF2');
     assert.ok(written.length < ttfBytes.length);
+  },
+);
+
+test(
+  'real subset-font: text= shrinks a system TTF and emits valid WOFF2 via <Font>',
+  { skip: findSystemTtf() == null ? 'no system TTF available' : false },
+  async () => {
+    const ttfPath = findSystemTtf();
+    const ttfBytes = nodeFs.readFileSync(ttfPath);
+    const fs = makeFs({});
+    fs.mkdirSync('/in', { recursive: true });
+    fs.writeFileSync('/in/font.ttf', ttfBytes);
+    fs.writeFileSync(
+      '/in/index.md',
+      "import {Font} from 'xtatic:font';\n\n" +
+        '<Font src="./font.ttf" family="Logo" text="xtatic" />\n' +
+        // a second call asking for the SAME glyph set must dedupe to one asset
+        '<Font src="./font.ttf" family="LogoAlt" text="cixat" />\n',
+    );
+    await build({ inputDir: '/in', outputDir: '/out', fs });
+    const html = fs.readFileSync('/out/index.html', 'utf8');
+    const urls = [...html.matchAll(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/g)].map(
+      (m) => m[1],
+    );
+    assert.equal(urls.length, 2);
+    assert.equal(urls[0], urls[1], 'same glyph set should share one asset');
+    const written = fs.readFileSync(`/out${urls[0]}`);
+    assert.equal(written.slice(0, 4).toString('ascii'), 'wOF2');
+    // a 6-glyph subset of a full Unicode face must be dramatically smaller
+    assert.ok(
+      written.length < ttfBytes.length / 4,
+      `subset not small enough: ${written.length} vs ${ttfBytes.length}`,
+    );
   },
 );
 

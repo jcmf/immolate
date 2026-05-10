@@ -232,9 +232,12 @@ import {Font} from 'xtatic:font';
 <Font src="./fonts/Inter-Regular.ttf" family="Inter" weight={400} />
 <Font src="./fonts/Inter-Bold.ttf"    family="Inter" weight={700} />
 <Font src="./fonts/Inter-Italic.ttf"  family="Inter" weight={400} style="italic" display="swap" preload />
+<Font src="./fonts/Logotype.otf"      family="Logotype" text="xtatic" preload />
 ```
 
 `.ttf` and `.otf` sources are transcoded to WOFF2 at build time via [wawoff2](https://github.com/fontello/wawoff2.js); `.woff` and `.woff2` sources are emitted verbatim. `wawoff2` is an optional peer dep — install it with `npm install wawoff2` the first time you use a `.ttf`/`.otf` source.
+
+**Subsetting.** Pass `text="…"` and the font is reduced to just the glyphs needed to render those characters before being emitted (always as WOFF2, whatever the input format). This is aimed at the small-fixed-text case — a logotype, a heading face, an icon set — where shipping a full Unicode face would be wasteful; a few-glyph subset of a typical text font is commonly a 10–100× size reduction. Subsetting is done via [subset-font](https://github.com/papandreou/subset-font) (HarfBuzz), an optional peer dep — `npm install subset-font` the first time you use `text=`. Two `<Font src>`s pointing at the same file with the same set of characters (order and duplicates don't matter) dedupe to one asset; different character sets, or a subsetted vs. non-subsetted reference, are separate assets.
 
 **Props:**
 
@@ -244,9 +247,10 @@ import {Font} from 'xtatic:font';
 - `style` — `"normal" | "italic" | "oblique"`. Omitted when absent.
 - `display` — `"auto" | "block" | "swap" | "fallback" | "optional"`. Omitted when absent (browser default = `auto`; `<Font>` does not impose `swap`).
 - `unicodeRange` — string passed through to `unicode-range:` verbatim.
+- `text` — when set (a non-empty string), subset the font to the characters in this string (see above). Output is WOFF2 regardless of source format.
 - `preload` — boolean (default `false`). When set, a `<link rel="preload" as="font" type="font/woff2" href="…" crossorigin>` is emitted just before the `<style>` block.
 
-Identical `src` files dedupe to a single asset across the whole site, regardless of how many `<Font>` calls reference them. Output URLs are absolute (`/_assets/…`); the site is expected to be served from the root.
+Identical `src` files dedupe to a single asset across the whole site, regardless of how many `<Font>` calls reference them (modulo `text` — see above). Output URLs are absolute (`/_assets/…`); the site is expected to be served from the root.
 
 `<Font>` rejects unknown props (no silent pass-through) — if you need to customize the emitted `<style>` or `<link>` further, write the markup by hand.
 

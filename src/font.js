@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { transcodeToWoff2 } from './font-transcode.js';
+import { subsetToWoff2 } from './font-subset.js';
 
 const TOKEN_RE = /__XTATIC_FONT_[a-f0-9]+__/g;
 const VALID_EXTS = new Set(['ttf', 'otf', 'woff', 'woff2']);
@@ -23,11 +24,18 @@ function makeToken() {
   return `__XTATIC_FONT_${crypto.randomBytes(12).toString('hex')}__`;
 }
 
+// Canonical glyph-set key for a subset request: unique code points, sorted, so
+// text="ab", "ba", and "aab" all map to one job (and one emitted asset).
+function canonicalSubsetText(text) {
+  return [...new Set(text)].sort().join('');
+}
+
 export function createFontRegistry({
   fs,
   topDir,
   assetRegistry,
   transcode = transcodeToWoff2,
+  subset = subsetToWoff2,
 }) {
   const calls = [];
   const jobs = new Map();
@@ -51,6 +59,7 @@ export function createFontRegistry({
         style,
         display,
         unicodeRange,
+        text,
         preload,
         children: _children,
         ...rest
@@ -101,6 +110,14 @@ export function createFontRegistry({
           `<Font src="${src}">: unicodeRange must be a string; got ${typeof unicodeRange}.`,
         );
       }
+      if (
+        text !== undefined &&
+        (typeof text !== 'string' || text.length === 0)
+      ) {
+        throw new Error(
+          `<Font src="${src}">: text must be a non-empty string (in "${displayPath(importerAbsPath)}").`,
+        );
+      }
       const extraKeys = Object.keys(rest);
       if (extraKeys.length > 0) {
         throw new Error(
@@ -109,10 +126,15 @@ export function createFontRegistry({
       }
 
       const absSrc = resolveSrc(importerAbsPath, src);
-      if (!jobs.has(absSrc)) {
-        jobs.set(absSrc, {
+      const subsetText =
+        text === undefined ? undefined : canonicalSubsetText(text);
+      const jobKey =
+        subsetText === undefined ? absSrc : `${absSrc}\0${subsetText}`;
+      if (!jobs.has(jobKey)) {
+        jobs.set(jobKey, {
           absSrc,
           ext,
+          subsetText,
           importerDisplay: displayPath(importerAbsPath),
         });
       }
@@ -120,7 +142,7 @@ export function createFontRegistry({
       const token = makeToken();
       calls.push({
         token,
-        absSrc,
+        jobKey,
         family,
         weight,
         style,
@@ -145,7 +167,10 @@ export function createFontRegistry({
       throw e;
     }
     let outExt = job.ext;
-    if (TRANSCODE_EXTS.has(job.ext)) {
+    if (job.subsetText !== undefined) {
+      bytes = await subset(bytes, job.subsetText);
+      outExt = 'woff2';
+    } else if (TRANSCODE_EXTS.has(job.ext)) {
       bytes = await transcode(bytes);
       outExt = 'woff2';
     }
@@ -156,14 +181,14 @@ export function createFontRegistry({
   async function processAll() {
     const jobResults = new Map();
     await Promise.all(
-      [...jobs.values()].map(async (job) => {
-        jobResults.set(job.absSrc, await runJob(job));
+      [...jobs.entries()].map(async ([key, job]) => {
+        jobResults.set(key, await runJob(job));
       }),
     );
 
     const tokenToHtml = new Map();
     for (const call of calls) {
-      const { url, ext } = jobResults.get(call.absSrc);
+      const { url, ext } = jobResults.get(call.jobKey);
       const decls = [`font-family:"${escCssString(call.family)}"`];
       if (call.style !== undefined) decls.push(`font-style:${call.style}`);
       if (call.weight !== undefined) decls.push(`font-weight:${call.weight}`);
