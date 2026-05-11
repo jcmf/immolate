@@ -7,6 +7,7 @@ import { createStyleRegistry } from './style.js';
 import { resolveLogicalPaths } from './paths.js';
 import { assembleTree } from './tree.js';
 import { renderModule } from './render.js';
+import { attachContext, formatContext, withFrame } from './render-context.js';
 import { createRegistry } from './registry.js';
 import { wrapZipFs } from './zipfs.js';
 
@@ -32,7 +33,17 @@ async function walkMdx(fs, root) {
 }
 
 function renderTree(mm, segments, outputDir, pages) {
-  const { html } = renderModule(mm);
+  const page = segments.length ? segments.join('/') : '/';
+  const { html } = withFrame(
+    { kind: 'page', page, file: mm.__xtatic_path ?? null },
+    () => {
+      try {
+        return renderModule(mm);
+      } catch (err) {
+        throw attachContext(err);
+      }
+    },
+  );
   const outPath = [outputDir, ...segments, 'index.html'].join('/');
   pages.push({ outPath, html });
   for (const child of mm.childPages) {
@@ -73,7 +84,30 @@ function assertSafeOutputDir(outputDir, sources) {
   }
 }
 
-export async function build({
+export async function build(options) {
+  try {
+    return await buildImpl(options);
+  } catch (err) {
+    // A render error (possibly deferred to a registry's processAll) carries a
+    // snapshot of the page / layout / component chain that led to it; fold it
+    // into the message so every consumer (cli, watch, serve-error) shows it.
+    if (
+      err &&
+      typeof err === 'object' &&
+      err.xtaticContext &&
+      !err.xtaticContextRendered
+    ) {
+      const ctx = formatContext(err.xtaticContext);
+      if (ctx) {
+        err.message = `${err.message}\n\n${ctx}`;
+        err.xtaticContextRendered = true;
+      }
+    }
+    throw err;
+  }
+}
+
+async function buildImpl({
   inputDir,
   outputDir,
   topDir,

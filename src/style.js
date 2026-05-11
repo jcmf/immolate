@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { rewriteCssUrls } from './css-urls.js';
+import { attachContext, currentStack } from './render-context.js';
 
 const DEFAULT_INLINE_THRESHOLD = 2048;
 const TOKEN_RE = /__XTATIC_STYLE_[a-f0-9]+__/g;
@@ -67,6 +68,7 @@ export function createStyleRegistry({
         jobs.set(absSrc, {
           absSrc,
           importerDisplay: displayPath(importerAbsPath),
+          context: currentStack(),
         });
       }
 
@@ -84,29 +86,33 @@ export function createStyleRegistry({
     const jobResults = new Map();
     await Promise.all(
       [...jobs.values()].map(async (job) => {
-        let raw;
         try {
-          raw = await fs.promises.readFile(job.absSrc, 'utf8');
-        } catch (e) {
-          if (e.code === 'ENOENT') {
-            throw new Error(
-              `<Style>: source not found at ${job.absSrc} (requested by "${job.importerDisplay}").`,
-            );
+          let raw;
+          try {
+            raw = await fs.promises.readFile(job.absSrc, 'utf8');
+          } catch (e) {
+            if (e.code === 'ENOENT') {
+              throw new Error(
+                `<Style>: source not found at ${job.absSrc} (requested by "${job.importerDisplay}").`,
+              );
+            }
+            throw e;
           }
-          throw e;
+          jobResults.set(
+            job.absSrc,
+            await rewriteCssUrls({
+              css: raw,
+              sourceAbsPath: job.absSrc,
+              fs,
+              topDir,
+              assetRegistry,
+              notFoundMessage: (url, absRef) =>
+                `<Style>: url("${url}") not found at ${absRef} (referenced from "${job.importerDisplay}").`,
+            }),
+          );
+        } catch (e) {
+          throw attachContext(e, job.context);
         }
-        jobResults.set(
-          job.absSrc,
-          await rewriteCssUrls({
-            css: raw,
-            sourceAbsPath: job.absSrc,
-            fs,
-            topDir,
-            assetRegistry,
-            notFoundMessage: (url, absRef) =>
-              `<Style>: url("${url}") not found at ${absRef} (referenced from "${job.importerDisplay}").`,
-          }),
-        );
       }),
     );
 

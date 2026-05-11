@@ -89,6 +89,49 @@ test('errors on collision between two equivalent forms', async () => {
   );
 });
 
+test('a deferred asset error reports the call site, layout chain, and page', async () => {
+  const fs = makeFs({
+    '/top/pages/index.md': '---\ntitle: Home\nlayout: base\n---\n# Home\n',
+    '/top/pages/blog/index.md': '---\ntitle: Blog\nlayout: base\n---\n# Blog\n',
+    '/top/layouts/base.mdx':
+      "import {Image} from 'xtatic:image';\n\n" +
+      '<html><body>\n\n' +
+      "<Image src='./missing.png' alt='x' />\n\n" +
+      '{props.children}\n\n</body></html>\n',
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/top/pages', outputDir: '/out', topDir: '/top', fs }),
+    (e) => {
+      assert.match(e.message, /^<Image>: source not found at \/top\/layouts\/missing\.png/);
+      assert.match(e.message, /\n {2}in <Image> at layouts\/base\.mdx:5:1/);
+      assert.match(e.message, /\n {2}in layout layouts\/base\.mdx/);
+      // The first page reached wins (build walks the tree depth-first).
+      assert.match(e.message, /\n {2}while building page \//);
+      return true;
+    },
+  );
+});
+
+test('a synchronous component error in a layout gets the same render-context trace', async () => {
+  const fs = makeFs({
+    '/top/pages/index.md': '---\ntitle: Home\nlayout: base\n---\n# Home\n',
+    '/top/layouts/base.mdx':
+      "import {Font} from 'xtatic:font';\n\n" +
+      '<html><head>\n\n' +
+      "<Font src='./Inter.woff2' />\n\n" +
+      '</head><body>{props.children}</body></html>\n',
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/top/pages', outputDir: '/out', topDir: '/top', fs }),
+    (e) => {
+      assert.match(e.message, /requires a non-empty family/);
+      assert.match(e.message, /\n {2}in <Font> at layouts\/base\.mdx:5:1/);
+      assert.match(e.message, /\n {2}while building page \//);
+      return true;
+    },
+  );
+});
+
 test('defaultLayout on the root applies to the root and all descendants', async () => {
   const fs = makeFs({
     '/top/pages/index.md':

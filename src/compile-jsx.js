@@ -10,7 +10,10 @@ const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const ParserWithJsx = Parser.extend(jsxAcornPlugin());
 
 const JSX_RUNTIME_IMPORT_SOURCE = '__xtatic_internal_jsx_runtime';
-const JSX_RUNTIME_IMPORT = `${JSX_RUNTIME_IMPORT_SOURCE}/jsx-runtime`;
+// buildJsx appends `/jsx-runtime` or `/jsx-dev-runtime` to the source.
+const JSX_RUNTIME_IMPORT_RE = new RegExp(
+  `^${JSX_RUNTIME_IMPORT_SOURCE}/jsx-(dev-)?runtime$`,
+);
 
 function id(name) {
   return { type: 'Identifier', name };
@@ -110,7 +113,10 @@ function transformModule(ast) {
 
   for (const node of ast.body) {
     if (node.type === 'ImportDeclaration') {
-      if (node.source.value === JSX_RUNTIME_IMPORT) {
+      if (
+        typeof node.source.value === 'string' &&
+        JSX_RUNTIME_IMPORT_RE.test(node.source.value)
+      ) {
         for (const s of node.specifiers) {
           runtimeProps.push(aliasProp(s.imported.name, s.local.name));
         }
@@ -212,10 +218,16 @@ export async function compileJsxSource(source, options = {}) {
   const ast = ParserWithJsx.parse(source, {
     sourceType: 'module',
     ecmaVersion: 'latest',
+    locations: true,
   });
+  // `development: true` lowers JSX to `jsxDEV(…, {fileName, lineNumber,
+  // columnNumber}, this)` so the render-context stack can report call sites;
+  // `filePath` is the `fileName` it stamps in.
   buildJsx(ast, {
     runtime: 'automatic',
     importSource: JSX_RUNTIME_IMPORT_SOURCE,
+    development: true,
+    filePath: options.importerDisplay ?? '<source>',
   });
   transformModule(ast);
   recmaImports()(ast);

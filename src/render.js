@@ -1,9 +1,10 @@
 import { jsx } from './jsx-runtime.js';
+import { withFrame, attachContext } from './render-context.js';
 
 const MAX_LAYOUT_DEPTH = 100;
 
 function layoutLabel(mm) {
-  return mm.name ?? '(layout)';
+  return mm.__xtatic_path ?? mm.name ?? '(layout)';
 }
 
 export function renderModule(mm) {
@@ -25,9 +26,17 @@ export function renderModule(mm) {
     }
     const inner = current;
     const t = layout;
+    const file = t.__xtatic_path ?? null;
     current = {
       ...t,
-      default: (props = {}) => t.default({ ...props, children: inner }),
+      default: (props = {}) =>
+        withFrame({ kind: 'layout', file }, () => {
+          try {
+            return t.default({ ...props, children: inner });
+          } catch (err) {
+            throw attachContext(err);
+          }
+        }),
     };
     layout = layout.layout;
   }

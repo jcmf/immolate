@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { attachContext, currentStack } from './render-context.js';
 
 const DEFAULT_INLINE_THRESHOLD = 8192;
 const VALID_FORMATS = new Set(['avif', 'webp', 'jpeg', 'jpg', 'png']);
@@ -143,6 +144,7 @@ export function createImageRegistry({
           absSrc,
           opts,
           importerDisplay: displayPath(importerAbsPath),
+          context: currentStack(),
         });
       }
 
@@ -163,56 +165,60 @@ export function createImageRegistry({
   }
 
   async function runJob(job) {
-    let bytes;
     try {
-      bytes = await fs.promises.readFile(job.absSrc);
-    } catch (e) {
-      if (e.code === 'ENOENT') {
+      let bytes;
+      try {
+        bytes = await fs.promises.readFile(job.absSrc);
+      } catch (e) {
+        if (e.code === 'ENOENT') {
+          throw new Error(
+            `<Image>: source not found at ${job.absSrc} (requested by "${job.importerDisplay}").`,
+          );
+        }
+        throw e;
+      }
+
+      if (job.opts.kind === 'svg') {
+        return {
+          bytes,
+          format: 'svg',
+          mediaType: MIME.svg,
+          width: null,
+          height: null,
+        };
+      }
+
+      const sharp = await loadSharp();
+      let pipeline = sharp(bytes).rotate();
+      if (job.opts.width != null || job.opts.height != null) {
+        pipeline = pipeline.resize({
+          width: job.opts.width ?? undefined,
+          height: job.opts.height ?? undefined,
+          fit: job.opts.fit,
+          withoutEnlargement: true,
+        });
+      }
+      const formatOpts =
+        job.opts.quality != null ? { quality: job.opts.quality } : {};
+      pipeline = pipeline.toFormat(job.opts.format, formatOpts);
+      let out;
+      try {
+        out = await pipeline.toBuffer({ resolveWithObject: true });
+      } catch (e) {
         throw new Error(
-          `<Image>: source not found at ${job.absSrc} (requested by "${job.importerDisplay}").`,
+          `<Image>: failed to process source "${job.importerDisplay}" → ${path.posix.basename(job.absSrc)}: ${e.message}`,
         );
       }
-      throw e;
-    }
-
-    if (job.opts.kind === 'svg') {
       return {
-        bytes,
-        format: 'svg',
-        mediaType: MIME.svg,
-        width: null,
-        height: null,
+        bytes: out.data,
+        format: job.opts.format,
+        mediaType: MIME[job.opts.format],
+        width: out.info.width,
+        height: out.info.height,
       };
-    }
-
-    const sharp = await loadSharp();
-    let pipeline = sharp(bytes).rotate();
-    if (job.opts.width != null || job.opts.height != null) {
-      pipeline = pipeline.resize({
-        width: job.opts.width ?? undefined,
-        height: job.opts.height ?? undefined,
-        fit: job.opts.fit,
-        withoutEnlargement: true,
-      });
-    }
-    const formatOpts =
-      job.opts.quality != null ? { quality: job.opts.quality } : {};
-    pipeline = pipeline.toFormat(job.opts.format, formatOpts);
-    let out;
-    try {
-      out = await pipeline.toBuffer({ resolveWithObject: true });
     } catch (e) {
-      throw new Error(
-        `<Image>: failed to process source "${job.importerDisplay}" → ${path.posix.basename(job.absSrc)}: ${e.message}`,
-      );
+      throw attachContext(e, job.context);
     }
-    return {
-      bytes: out.data,
-      format: job.opts.format,
-      mediaType: MIME[job.opts.format],
-      width: out.info.width,
-      height: out.info.height,
-    };
   }
 
   async function processAll() {

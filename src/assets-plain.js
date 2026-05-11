@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { rewriteCssUrls } from './css-urls.js';
+import { attachContext, currentStack } from './render-context.js';
 
 const TOKEN_RE = /__XTATIC_ASSET_[a-f0-9]+__/g;
 const EXT_RE = /\.([a-z0-9]+)$/i;
@@ -96,6 +97,7 @@ export function createPlainAssetRegistry({
         srcDisplay: value,
         placement,
         kind: opts.kind ?? null,
+        context: currentStack(),
       });
       return token;
     };
@@ -147,8 +149,11 @@ export function createPlainAssetRegistry({
           entry.explicitPlacement &&
           entry.explicitPlacement !== call.placement
         ) {
-          throw new Error(
-            `Conflicting placement for "${call.srcDisplay}": got "${entry.explicitPlacement}" and "${call.placement}" (in "${displayPath(call.importerAbsPath)}").`,
+          throw attachContext(
+            new Error(
+              `Conflicting placement for "${call.srcDisplay}": got "${entry.explicitPlacement}" and "${call.placement}" (in "${displayPath(call.importerAbsPath)}").`,
+            ),
+            call.context,
           );
         }
         entry.explicitPlacement = call.placement;
@@ -158,27 +163,31 @@ export function createPlainAssetRegistry({
     await Promise.all(
       [...bySrc.values()].map(async (entry) => {
         try {
-          entry.bytes = await fs.promises.readFile(entry.absSrc);
-        } catch (e) {
-          if (e.code === 'ENOENT') {
-            const importer = displayPath(entry.calls[0].importerAbsPath);
-            throw new Error(
-              `Asset not found at ${entry.absSrc} (referenced from "${importer}").`,
-            );
+          try {
+            entry.bytes = await fs.promises.readFile(entry.absSrc);
+          } catch (e) {
+            if (e.code === 'ENOENT') {
+              const importer = displayPath(entry.calls[0].importerAbsPath);
+              throw new Error(
+                `Asset not found at ${entry.absSrc} (referenced from "${importer}").`,
+              );
+            }
+            throw e;
           }
-          throw e;
-        }
-        if (entry.ext === 'css') {
-          const rewritten = await rewriteCssUrls({
-            css: entry.bytes.toString('utf8'),
-            sourceAbsPath: entry.absSrc,
-            fs,
-            topDir,
-            assetRegistry,
-            notFoundMessage: (url, absRef) =>
-              `Asset url("${url}") not found at ${absRef} (referenced from "${displayPath(entry.absSrc)}").`,
-          });
-          entry.bytes = Buffer.from(rewritten, 'utf8');
+          if (entry.ext === 'css') {
+            const rewritten = await rewriteCssUrls({
+              css: entry.bytes.toString('utf8'),
+              sourceAbsPath: entry.absSrc,
+              fs,
+              topDir,
+              assetRegistry,
+              notFoundMessage: (url, absRef) =>
+                `Asset url("${url}") not found at ${absRef} (referenced from "${displayPath(entry.absSrc)}").`,
+            });
+            entry.bytes = Buffer.from(rewritten, 'utf8');
+          }
+        } catch (e) {
+          throw attachContext(e, entry.calls[0]?.context);
         }
       }),
     );
@@ -189,8 +198,11 @@ export function createPlainAssetRegistry({
           for (const pageOutPath of entry.pages) {
             if (isAssetUnderPage(entry.absSrc, pageOutPath)) return 'co-located';
           }
-          throw new Error(
-            `Cannot co-locate "${displayPath(entry.absSrc)}": its source is not at-or-below any consuming page's output directory.`,
+          throw attachContext(
+            new Error(
+              `Cannot co-locate "${displayPath(entry.absSrc)}": its source is not at-or-below any consuming page's output directory.`,
+            ),
+            entry.calls[0]?.context,
           );
         }
         return entry.explicitPlacement;
@@ -234,8 +246,11 @@ export function createPlainAssetRegistry({
           const assetOutAbs = path.posix.join(outputDir, relFromTop);
           const existing = colocatedWrites.get(assetOutAbs);
           if (existing && !existing.equals(entry.bytes)) {
-            throw new Error(
-              `Co-located output collision at ${assetOutAbs}: different bytes.`,
+            throw attachContext(
+              new Error(
+                `Co-located output collision at ${assetOutAbs}: different bytes.`,
+              ),
+              entry.calls[0]?.context,
             );
           }
           colocatedWrites.set(assetOutAbs, entry.bytes);

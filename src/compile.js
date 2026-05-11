@@ -18,16 +18,30 @@ export async function compileSource(source, options = {}) {
   const resolve = options.resolve ?? defaultResolve;
   const asset = options.asset;
   const userRemarkPlugins = options.remarkPlugins ?? [];
-  const compiled = await compile(source, {
-    remarkPlugins: [
-      remarkFrontmatter,
-      remarkMdxFrontmatter,
-      ...userRemarkPlugins,
-    ],
-    recmaPlugins: [recmaImports, recmaAssets, recmaSelf],
-    outputFormat: 'function-body',
-    baseUrl: 'file:///xtatic/',
-  });
+  // `development: true` makes the compiler emit `jsxDEV(…, source)` calls with
+  // call-site positions, which the render-context stack uses for error
+  // reporting; the VFile path becomes the `fileName` in those positions. The
+  // generated runtime import (`…/jsx-dev-runtime`) is still rewritten to a
+  // destructure from `arguments[0]` by `outputFormat: 'function-body'`, so we
+  // just need `jsxDEV` on the runtime namespace below — no real module.
+  const compiled = await compile(
+    { value: source, path: options.importerDisplay ?? '<source>' },
+    {
+      remarkPlugins: [
+        remarkFrontmatter,
+        remarkMdxFrontmatter,
+        ...userRemarkPlugins,
+      ],
+      recmaPlugins: [recmaImports, recmaAssets, recmaSelf],
+      outputFormat: 'function-body',
+      // Always full MDX, even for `.md` — without this, supplying a `.md` VFile
+      // path (for the `jsxDEV` source `fileName`) flips MDX into plain-markdown
+      // mode and `import`/JSX become literal text.
+      format: 'mdx',
+      development: true,
+      baseUrl: 'file:///xtatic/',
+    },
+  );
   const fn = new AsyncFunction(String(compiled));
   const mod = await fn({
     ...runtime,

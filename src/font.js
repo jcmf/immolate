@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { transcodeToWoff2 } from './font-transcode.js';
 import { subsetToWoff2 } from './font-subset.js';
+import { attachContext, currentStack } from './render-context.js';
 
 const TOKEN_RE = /__XTATIC_FONT_[a-f0-9]+__/g;
 const VALID_EXTS = new Set(['ttf', 'otf', 'woff', 'woff2']);
@@ -136,6 +137,7 @@ export function createFontRegistry({
           ext,
           subsetText,
           importerDisplay: displayPath(importerAbsPath),
+          context: currentStack(),
         });
       }
 
@@ -155,27 +157,31 @@ export function createFontRegistry({
   }
 
   async function runJob(job) {
-    let bytes;
     try {
-      bytes = await fs.promises.readFile(job.absSrc);
-    } catch (e) {
-      if (e.code === 'ENOENT') {
-        throw new Error(
-          `<Font>: source not found at ${job.absSrc} (requested by "${job.importerDisplay}").`,
-        );
+      let bytes;
+      try {
+        bytes = await fs.promises.readFile(job.absSrc);
+      } catch (e) {
+        if (e.code === 'ENOENT') {
+          throw new Error(
+            `<Font>: source not found at ${job.absSrc} (requested by "${job.importerDisplay}").`,
+          );
+        }
+        throw e;
       }
-      throw e;
+      let outExt = job.ext;
+      if (job.subsetText !== undefined) {
+        bytes = await subset(bytes, job.subsetText);
+        outExt = 'woff2';
+      } else if (TRANSCODE_EXTS.has(job.ext)) {
+        bytes = await transcode(bytes);
+        outExt = 'woff2';
+      }
+      const url = assetRegistry.emit(bytes, outExt);
+      return { url, ext: outExt };
+    } catch (e) {
+      throw attachContext(e, job.context);
     }
-    let outExt = job.ext;
-    if (job.subsetText !== undefined) {
-      bytes = await subset(bytes, job.subsetText);
-      outExt = 'woff2';
-    } else if (TRANSCODE_EXTS.has(job.ext)) {
-      bytes = await transcode(bytes);
-      outExt = 'woff2';
-    }
-    const url = assetRegistry.emit(bytes, outExt);
-    return { url, ext: outExt };
   }
 
   async function processAll() {

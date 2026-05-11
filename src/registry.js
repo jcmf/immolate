@@ -47,6 +47,18 @@ function makeCompileError(displayPath, source, cause) {
   return new Error(msg);
 }
 
+// Tag a compiled module object with its display path so render-context frames
+// (and the layout-chain walk) can name it. Non-enumerable so it doesn't leak
+// into `recma-self`'s bare-identifier set or any `Object.keys(mm)` consumer.
+function stampPath(mm, displayPath) {
+  Object.defineProperty(mm, '__xtatic_path', {
+    value: displayPath,
+    enumerable: false,
+    configurable: true,
+    writable: true,
+  });
+}
+
 export function isMdxLike(absPath) {
   return MDX_EXT_RE.test(absPath);
 }
@@ -98,11 +110,13 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
       compiled = await compileJsxSource(source, {
         resolve: makeResolver(absPath),
         asset: plainAssetRegistry?.forImporter(absPath),
+        importerDisplay: displayPath(absPath),
       });
     } catch (e) {
       throw makeCompileError(displayPath(absPath), source, e);
     }
     Object.assign(mm, compiled);
+    stampPath(mm, displayPath(absPath));
     jsxModules.get(absPath).status = 'done';
     return mm;
   }
@@ -116,6 +130,7 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
     try {
       compiled = await compileSource(source, {
         importerPath: absPath,
+        importerDisplay: displayPath(absPath),
         resolve: makeResolver(absPath),
         asset: plainAssetRegistry?.forImporter(absPath),
         remarkPlugins,
@@ -124,6 +139,7 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
       throw makeCompileError(displayPath(absPath), source, e);
     }
     Object.assign(mm, compiled);
+    stampPath(mm, displayPath(absPath));
     const original = mm.default;
     mm.default = (props = {}) => original({ ...props, __xtatic_self: mm });
     mdxModules.get(absPath).status = 'done';
