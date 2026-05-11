@@ -4,6 +4,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import * as nodeFs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { stripAnsi } from '../src/serve-error.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
@@ -186,7 +187,8 @@ function spawnWatch(args, opts = {}) {
     );
   }
   function countBuilds() {
-    return (buffers.stdout.match(/\[xtatic\] built in /g) || []).length;
+    return (stripAnsi(buffers.stdout).match(/\[xtatic\] built in /g) || [])
+      .length;
   }
   return { proc, buffers, exited, waitUntil, countBuilds };
 }
@@ -332,6 +334,144 @@ test('browse logs the URL it would open and serves the page', async () => {
     const r = await fetch(m[1]);
     assert.equal(r.status, 200);
     assert.match(await r.text(), /<h1>Browse me<\/h1>/);
+  } finally {
+    w.proc.kill('SIGTERM');
+    await w.exited;
+  }
+});
+
+test('serve prints "serving" before "watching" before the first build', async () => {
+  const top = setupTopDir('serve-order', {
+    files: { 'pages/index.md': '# Hi\n' },
+  });
+  const w = spawnWatch(['serve', top], {
+    env: { ...process.env, XTATIC_PORT: '0' },
+  });
+  try {
+    await w.waitUntil(() => w.countBuilds() >= 1, { label: 'first build' });
+    const out = stripAnsi(w.buffers.stdout);
+    const iServing = out.indexOf('[xtatic] serving ');
+    const iWatching = out.indexOf('[xtatic] watching ');
+    const iBuilding = out.indexOf('[xtatic] building…');
+    const iBuilt = out.indexOf('[xtatic] built in ');
+    assert.ok(
+      iServing >= 0 && iWatching >= 0 && iBuilding >= 0 && iBuilt >= 0,
+      out,
+    );
+    assert.ok(iServing < iWatching, `serving before watching\n${out}`);
+    assert.ok(iWatching < iBuilding, `watching before building\n${out}`);
+    assert.ok(iBuilding < iBuilt, `building before built\n${out}`);
+  } finally {
+    w.proc.kill('SIGTERM');
+    await w.exited;
+  }
+});
+
+test('serve logs each request by default', async () => {
+  const top = setupTopDir('serve-reqlog', {
+    files: { 'pages/index.md': '# Hi\n' },
+  });
+  const w = spawnWatch(['serve', top], {
+    env: { ...process.env, XTATIC_PORT: '0' },
+  });
+  try {
+    await w.waitUntil(() => extractServeUrl(w.buffers.stdout), {
+      label: 'server start',
+    });
+    const r = await fetch(extractServeUrl(w.buffers.stdout));
+    await r.text();
+    await w.waitUntil(
+      () => /\[xtatic\] GET \/ 200\b/.test(stripAnsi(w.buffers.stdout)),
+      { label: 'request log line' },
+    );
+  } finally {
+    w.proc.kill('SIGTERM');
+    await w.exited;
+  }
+});
+
+test('serve does not log requests served the build-error page', async () => {
+  const top = setupTopDir('serve-errlog-quiet', {
+    files: { 'pages/index.md': '# Broken {foo.}\n' },
+  });
+  const w = spawnWatch(['serve', top], {
+    env: { ...process.env, XTATIC_PORT: '0' },
+  });
+  try {
+    await w.waitUntil(
+      () => /\[xtatic\] build failed/.test(stripAnsi(w.buffers.stderr)),
+      { label: 'build failure' },
+    );
+    const r = await fetch(extractServeUrl(w.buffers.stdout));
+    assert.equal(r.status, 503);
+    await r.text();
+    await new Promise((res) => setTimeout(res, 200));
+    assert.doesNotMatch(stripAnsi(w.buffers.stdout), /\[xtatic\] GET \//);
+  } finally {
+    w.proc.kill('SIGTERM');
+    await w.exited;
+  }
+});
+
+test('XTATIC_REQUEST_LOG=all logs build-error-page requests', async () => {
+  const top = setupTopDir('serve-errlog-all', {
+    files: { 'pages/index.md': '# Broken {foo.}\n' },
+  });
+  const w = spawnWatch(['serve', top], {
+    env: { ...process.env, XTATIC_PORT: '0', XTATIC_REQUEST_LOG: 'all' },
+  });
+  try {
+    await w.waitUntil(
+      () => /\[xtatic\] build failed/.test(stripAnsi(w.buffers.stderr)),
+      { label: 'build failure' },
+    );
+    await fetch(extractServeUrl(w.buffers.stdout));
+    await w.waitUntil(
+      () => /\[xtatic\] GET \/ 503\b/.test(stripAnsi(w.buffers.stdout)),
+      { label: '503 request log line' },
+    );
+  } finally {
+    w.proc.kill('SIGTERM');
+    await w.exited;
+  }
+});
+
+test('XTATIC_REQUEST_LOG=off silences request logging', async () => {
+  const top = setupTopDir('serve-reqlog-off', {
+    files: { 'pages/index.md': '# Hi\n' },
+  });
+  const w = spawnWatch(['serve', top], {
+    env: { ...process.env, XTATIC_PORT: '0', XTATIC_REQUEST_LOG: 'off' },
+  });
+  try {
+    await w.waitUntil(() => extractServeUrl(w.buffers.stdout), {
+      label: 'server start',
+    });
+    const r = await fetch(extractServeUrl(w.buffers.stdout));
+    assert.equal(r.status, 200);
+    await r.text();
+    await new Promise((res) => setTimeout(res, 200));
+    assert.doesNotMatch(stripAnsi(w.buffers.stdout), /\[xtatic\] GET \//);
+  } finally {
+    w.proc.kill('SIGTERM');
+    await w.exited;
+  }
+});
+
+test('a rebuild names the file that changed', async () => {
+  const top = setupTopDir('watch-trigger-name', {
+    files: { 'pages/index.md': '# original\n' },
+  });
+  const w = spawnWatch(['watch', top]);
+  try {
+    await w.waitUntil(() => w.countBuilds() >= 1, { label: 'initial build' });
+    const before = w.countBuilds();
+    nodeFs.writeFileSync(path.join(top, 'pages', 'index.md'), '# updated\n');
+    await w.waitUntil(() => w.countBuilds() > before, { label: 'rebuild' });
+    assert.match(
+      stripAnsi(w.buffers.stdout),
+      /\[xtatic\] (?:pages[/\\])?index\.md changed — building…/,
+    );
   } finally {
     w.proc.kill('SIGTERM');
     await w.exited;

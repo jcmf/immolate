@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { color, fmtMs, log, warn } from './log.js';
 import { renderErrorPage } from './serve-error.js';
 import { watch } from './watch.js';
 
@@ -134,6 +135,22 @@ function openBrowser(url) {
   } catch {}
 }
 
+function statusColor(code) {
+  if (code < 300) return 'green';
+  if (code < 400) return 'cyan';
+  if (code < 500) return 'yellow';
+  return 'red';
+}
+
+// XTATIC_REQUEST_LOG: 'on' (default) logs served requests but stays quiet about
+// the build-error page so a broken build doesn't scroll the error off-screen;
+// 'all' logs everything (including the error page's reload polling) for
+// debugging; 'off' disables request logging entirely.
+function requestLogMode() {
+  const v = (process.env.XTATIC_REQUEST_LOG ?? '').toLowerCase();
+  return v === 'off' || v === 'all' ? v : 'on';
+}
+
 export async function serve({
   buildOptions,
   port = 3000,
@@ -143,17 +160,37 @@ export async function serve({
   errorReloadInterval = 2,
 }) {
   if (process.env.FORCE_COLOR == null) process.env.FORCE_COLOR = '1';
-  const { state, whenIdle } = await watch({ buildOptions });
+  const logMode = requestLogMode();
+
+  // `ctx` is filled in once the watcher exists; until then `ready` (resolved
+  // after the first build settles) holds requests so nothing is served against
+  // an empty or half-written outputDir.
+  let markReady;
+  const ready = new Promise((r) => {
+    markReady = r;
+  });
   const ctx = {
-    state,
-    whenIdle,
+    state: null,
+    whenIdle: () => ready,
     topDir: buildOptions.topDir,
     errorLayout,
     errorReloadInterval,
   };
+
   const server = http.createServer((req, res) => {
+    const start = Date.now();
+    if (logMode !== 'off') {
+      res.on('finish', () => {
+        if (res.statusCode === 503 && logMode !== 'all') return;
+        log(
+          `${color('dim', req.method)} ${req.url} ` +
+            `${color(statusColor(res.statusCode), res.statusCode)} ` +
+            `${color('dim', fmtMs(Date.now() - start))}`,
+        );
+      });
+    }
     handle(buildOptions.outputDir, req, res, ctx).catch((e) => {
-      console.error(`[xtatic] server error: ${e.message}`);
+      warn(`server error: ${e.message}`);
       try {
         send(
           res,
@@ -164,6 +201,8 @@ export async function serve({
       } catch {}
     });
   });
+
+  // Listen first, so the URL is visible up front while the first build runs.
   await new Promise((resolve, reject) => {
     function onError(e) {
       if (e.code === 'EADDRINUSE') {
@@ -184,10 +223,18 @@ export async function serve({
   });
   const addr = server.address();
   const url = `http://${addr.address}:${addr.port}/`;
-  console.log(`[xtatic] serving ${url}`);
+  log(`serving ${url}`);
   if (open) {
-    console.log(`[xtatic] opening ${url}`);
+    log(`opening ${url}`);
     if (!process.env.XTATIC_NO_OPEN) openBrowser(url);
   }
-  return { server, url };
+
+  // Now start watching; the first build is the first iteration of the watch.
+  const { watcher, state, whenIdle } = await watch({ buildOptions });
+  ctx.state = state;
+  ctx.whenIdle = whenIdle;
+  await whenIdle();
+  markReady();
+
+  return { server, url, watcher };
 }

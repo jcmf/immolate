@@ -15,7 +15,7 @@ The first positional argument is a command. The available commands are:
 
 - `build [top_dir]` — build the site (the default if no command is given).
 - `watch [top_dir]` — build, then rebuild on every change under `top_dir`. Errors don't kill the watcher; fix the file and save again.
-- `serve [top_dir]` — watch and serve the output over HTTP. Defaults to <http://localhost:3000/>; override the port with `XTATIC_PORT=…`.
+- `serve [top_dir]` — watch and serve the output over HTTP. Defaults to <http://localhost:3000/>; override the port with `XTATIC_PORT=…`. Each request is logged to the console; set `XTATIC_REQUEST_LOG=off` to silence it, or `=all` to also log the requests that hit the build-error page while a build is broken.
 - `browse [top_dir]` — same as `serve`, then open the root page in your default browser.
 - `help` — print usage.
 
