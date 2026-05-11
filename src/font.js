@@ -35,8 +35,11 @@ export function createFontRegistry({
   fs,
   topDir,
   assetRegistry,
-  transcode = transcodeToWoff2,
-  subset = subsetToWoff2,
+  autoInstall = false,
+  install,
+  transcode = (bytes) => transcodeToWoff2(bytes, { autoInstall, topDir, install }),
+  subset = (bytes, text) =>
+    subsetToWoff2(bytes, text, { autoInstall, topDir, install }),
 }) {
   const calls = [];
   const jobs = new Map();

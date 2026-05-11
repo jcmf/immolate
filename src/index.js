@@ -116,6 +116,8 @@ async function buildImpl({
   imageInlineThreshold,
   styleInlineThreshold,
   assetInlineThreshold,
+  autoInstall = false,
+  install,
   fs,
 }) {
   inputDir = path.posix.resolve(inputDir);
@@ -141,6 +143,8 @@ async function buildImpl({
     topDir,
     assetRegistry,
     defaultInlineThreshold: imageInlineThreshold,
+    autoInstall,
+    install,
   });
   const styleRegistry = createStyleRegistry({
     fs,
@@ -152,6 +156,8 @@ async function buildImpl({
     fs,
     topDir,
     assetRegistry,
+    autoInstall,
+    install,
   });
   const plainAssetRegistry = createPlainAssetRegistry({
     fs,

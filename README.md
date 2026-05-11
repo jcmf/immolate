@@ -13,6 +13,7 @@ npx xtatic build [TOP_DIR]
 
 The first positional argument is a command. The available commands are:
 
+- `init [top_dir]` — scaffold or update `top_dir/package.json`: add `xtatic` to `devDependencies` (when not already declared as a regular or dev dependency) and enable [`xtatic.autoInstall`](#auto-installing-optional-peer-deps). Creates a minimal `package.json` if none exists. Idempotent.
 - `build [top_dir]` — build the site (the default if no command is given).
 - `watch [top_dir]` — build, then rebuild on every change under `top_dir`. Errors don't kill the watcher; fix the file and save again.
 - `serve [top_dir]` — watch and serve the output over HTTP. Defaults to <http://localhost:3000/>; override the port with `XTATIC_PORT=…`. Each request is logged to the console; set `XTATIC_REQUEST_LOG=off` to silence it, or `=all` to also log the requests that hit the build-error page while a build is broken.
@@ -255,6 +256,20 @@ Identical `src` files dedupe to a single asset across the whole site, regardless
 `<Font>` rejects unknown props (no silent pass-through) — if you need to customize the emitted `<style>` or `<link>` further, write the markup by hand.
 
 **Note on `<Style>` interaction:** writing your own `@font-face { src: url('./x.ttf') }` inside a `<Style>`-loaded CSS file no longer auto-transcodes the TTF to WOFF2 — the CSS path emits the file as-is now. Use `<Font>` for the transcode behavior.
+
+## Auto-installing optional peer deps
+
+`<Image>`, `<Font>`, and font subsetting each need an optional peer dependency (`sharp`, `wawoff2`, `subset-font`). By default a missing one is a build error suggesting `npm install <pkg>`. Set `xtatic.autoInstall` in `package.json` to flip that to on-the-fly installation:
+
+```json
+{
+  "xtatic": {
+    "autoInstall": true
+  }
+}
+```
+
+When enabled, the first time a build needs a missing peer dep, xtatic shells out to `npm install --save-dev <pkg>` in `TOP_DIR` and then retries the import. Subsequent rebuilds in the same process reuse the installed module. Defaults to `false`. `xtatic init` enables this flag.
 
 ## Lint
 

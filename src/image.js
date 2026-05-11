@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { attachContext, currentStack } from './render-context.js';
+import { loadOptionalDep } from './install.js';
 
 const DEFAULT_INLINE_THRESHOLD = 8192;
 const VALID_FORMATS = new Set(['avif', 'webp', 'jpeg', 'jpg', 'png']);
@@ -18,17 +19,21 @@ const MIME = {
 };
 
 let sharpPromise = null;
-async function loadSharp() {
+function loadSharp({ autoInstall, topDir, install } = {}) {
   if (sharpPromise) return sharpPromise;
-  sharpPromise = import('sharp').then(
-    (m) => m.default,
-    () => {
-      throw new Error(
-        `<Image> requires the 'sharp' package, which is not installed. Run: npm install sharp`,
-      );
-    },
-  );
-  return sharpPromise;
+  const p = loadOptionalDep({
+    pkg: 'sharp',
+    importer: async () => (await import('sharp')).default,
+    autoInstall,
+    topDir,
+    install,
+    missingMessage: `<Image> requires the 'sharp' package, which is not installed. Run: npm install sharp`,
+  });
+  sharpPromise = p;
+  p.catch(() => {
+    if (sharpPromise === p) sharpPromise = null;
+  });
+  return p;
 }
 
 function escAttr(s) {
@@ -64,6 +69,8 @@ export function createImageRegistry({
   topDir,
   assetRegistry,
   defaultInlineThreshold = DEFAULT_INLINE_THRESHOLD,
+  autoInstall = false,
+  install,
 }) {
   const calls = [];
   const jobs = new Map();
@@ -188,7 +195,7 @@ export function createImageRegistry({
         };
       }
 
-      const sharp = await loadSharp();
+      const sharp = await loadSharp({ autoInstall, topDir, install });
       let pipeline = sharp(bytes).rotate();
       if (job.opts.width != null || job.opts.height != null) {
         pipeline = pipeline.resize({

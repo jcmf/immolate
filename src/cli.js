@@ -5,6 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import remarkSmartypants from 'remark-smartypants';
 import { build } from './index.js';
+import { runInit } from './init.js';
 import { runLint } from './lint.js';
 import { serve } from './serve.js';
 import { watch } from './watch.js';
@@ -15,6 +16,8 @@ Usage:
   xtatic [command] [args...]
 
 Commands:
+  init [top_dir]    Create or update top_dir/package.json: add xtatic as a
+                    devDependency (when absent) and enable xtatic.autoInstall.
   build [top_dir]   Build the site. top_dir defaults to the current directory.
   watch [top_dir]   Build, then rebuild on every change under top_dir.
   serve [top_dir]   Watch and serve the output over HTTP (default port 3000;
@@ -24,7 +27,7 @@ Commands:
 
 If no command is given, "build" is run with no arguments.`;
 
-const KNOWN = new Set(['build', 'watch', 'serve', 'browse']);
+const KNOWN = new Set(['init', 'build', 'watch', 'serve', 'browse']);
 
 const args = process.argv.slice(2);
 const command = args[0] ?? 'build';
@@ -47,6 +50,19 @@ if (rest.length > 1) {
 }
 
 const topDir = path.resolve(rest[0] ?? '.');
+
+if (command === 'init') {
+  try {
+    runInit({ topDir });
+  } catch (e) {
+    if (process.env.XTATIC_DEBUG) throw e;
+    console.error(e.message);
+    console.error('\n(set XTATIC_DEBUG=1 for the full stack)');
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
 let inputDir = 'pages';
 let outputDir = 'site';
 let layoutsDir = 'layouts';
@@ -57,6 +73,7 @@ let styleInlineThreshold;
 let assetInlineThreshold;
 let errorLayout;
 let errorReloadInterval;
+let autoInstall = false;
 
 const pkgPath = path.join(topDir, 'package.json');
 if (fs.existsSync(pkgPath)) {
@@ -96,6 +113,15 @@ if (fs.existsSync(pkgPath)) {
       process.exit(1);
     }
     errorLayout = path.resolve(topDir, pkg.xtatic.errorLayout);
+  }
+  if (pkg.xtatic?.autoInstall != null) {
+    if (typeof pkg.xtatic.autoInstall !== 'boolean') {
+      console.error(
+        `xtatic.autoInstall must be a boolean; got ${JSON.stringify(pkg.xtatic.autoInstall)}.`,
+      );
+      process.exit(1);
+    }
+    autoInstall = pkg.xtatic.autoInstall;
   }
   if (pkg.xtatic?.errorReloadInterval != null) {
     const v = pkg.xtatic.errorReloadInterval;
@@ -183,6 +209,7 @@ const buildOptions = {
   imageInlineThreshold,
   styleInlineThreshold,
   assetInlineThreshold,
+  autoInstall,
 };
 
 if (command === 'build') {
