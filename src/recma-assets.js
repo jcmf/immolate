@@ -75,6 +75,30 @@ function isStringLiteral(node) {
   return node?.type === 'Literal' && typeof node.value === 'string';
 }
 
+// In `development` mode (always, for us), the lowered call is
+// `_jsxDEV(type, props, key, isStaticChildren, {fileName, lineNumber,
+// columnNumber}, this)` — argument index 4 is the source object literal that
+// `estree-util-build-jsx` builds. Pull the call site out of it so it can ride
+// along into __xtatic_asset for error reporting. Returns null for the
+// production `_jsx`/`_jsxs` shape (no source argument).
+function extractLoc(node) {
+  const src = node.arguments[4];
+  if (!src || src.type !== 'ObjectExpression') return null;
+  const fileProp = findProp(src, 'fileName');
+  if (!isStringLiteral(fileProp?.value)) return null;
+  const numProp = (name) => {
+    const p = findProp(src, name);
+    return p?.value?.type === 'Literal' && typeof p.value.value === 'number'
+      ? p.value.value
+      : null;
+  };
+  return {
+    file: fileProp.value.value,
+    line: numProp('lineNumber'),
+    column: numProp('columnNumber'),
+  };
+}
+
 function tagNameOf(node) {
   if (isStringLiteral(node)) return node.value;
   if (
@@ -181,12 +205,20 @@ function processJsxCall(node, tagRules) {
   }
   const passPlacement = placement && placement !== 'auto' ? placement : null;
   const kind = getKind ? getKind(propsNode) : null;
+  const loc = extractLoc(node);
 
   let rewrote = false;
   for (const attr of attrs) {
     const prop = findProp(propsNode, attr);
     if (!prop) continue;
-    prop.value = makeAssetCall(prop.value, { placement: passPlacement, kind });
+    prop.value = makeAssetCall(prop.value, {
+      placement: passPlacement,
+      kind,
+      tag: loc ? tagName : null,
+      locFile: loc?.file ?? null,
+      locLine: loc?.line ?? null,
+      locColumn: loc?.column ?? null,
+    });
     rewrote = true;
   }
   return rewrote;

@@ -90,6 +90,19 @@ export function createPlainAssetRegistry({
       }
       const absSrc = resolveSrc(importerAbsPath, value);
       const token = makeToken();
+      // recma-assets passes the `<img>`/`<link>`/… call site (tag + file:line:col)
+      // for whitelisted attrs; the `__xtatic_asset` call itself isn't wrapped in a
+      // withFrame, so synthesize that frame on top of the live stack snapshot.
+      const context = currentStack();
+      if (opts.locFile) {
+        context.push({
+          kind: 'component',
+          name: opts.tag ?? null,
+          atFile: opts.locFile,
+          atLine: opts.locLine ?? null,
+          atColumn: opts.locColumn ?? null,
+        });
+      }
       calls.push({
         token,
         importerAbsPath,
@@ -97,7 +110,7 @@ export function createPlainAssetRegistry({
         srcDisplay: value,
         placement,
         kind: opts.kind ?? null,
-        context: currentStack(),
+        context,
       });
       return token;
     };

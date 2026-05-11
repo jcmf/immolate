@@ -112,6 +112,40 @@ test('a deferred asset error reports the call site, layout chain, and page', asy
   );
 });
 
+test('a plain <img> error reports the element and its call site', async () => {
+  const fs = makeFs({
+    '/top/pages/index.md': '---\ntitle: Home\nlayout: base\n---\n# Home\n',
+    '/top/layouts/base.mdx':
+      '<html><body>\n\n' +
+      "<img src='./logo.png' alt='x' />\n\n" +
+      '{props.children}\n\n</body></html>\n',
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/top/pages', outputDir: '/out', topDir: '/top', fs }),
+    (e) => {
+      assert.match(e.message, /^Asset not found at \/top\/layouts\/logo\.png/);
+      assert.match(e.message, /\n {2}in <img> at layouts\/base\.mdx:3:1/);
+      assert.match(e.message, /\n {2}in layout layouts\/base\.mdx/);
+      assert.match(e.message, /\n {2}while building page \//);
+      return true;
+    },
+  );
+});
+
+test('a markdown ![]() image error reports <img> and the markdown line', async () => {
+  const fs = makeFs({
+    '/top/pages/index.md': '---\ntitle: Home\n---\n# Home\n\n![alt](./pic.png)\n',
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/top/pages', outputDir: '/out', topDir: '/top', fs }),
+    (e) => {
+      assert.match(e.message, /^Asset not found at \/top\/pages\/pic\.png/);
+      assert.match(e.message, /\n {2}in <img> at pages\/index\.md:6:1/);
+      return true;
+    },
+  );
+});
+
 test('a synchronous component error in a layout gets the same render-context trace', async () => {
   const fs = makeFs({
     '/top/pages/index.md': '---\ntitle: Home\nlayout: base\n---\n# Home\n',
