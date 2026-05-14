@@ -15,6 +15,7 @@ const VALID_DISPLAY = new Set([
   'optional',
 ]);
 const VALID_STYLE = new Set(['normal', 'italic', 'oblique']);
+const VALID_SUBSET_MODES = new Set(['all-text']);
 const MIME = { woff: 'font/woff', woff2: 'font/woff2' };
 
 function escCssString(s) {
@@ -31,18 +32,57 @@ function canonicalSubsetText(text) {
   return [...new Set(text)].sort().join('');
 }
 
+// Strip tags from a page's rendered HTML and return the remaining text.
+// Drops <script>/<style>/<template> content (not rendered as glyphs); decodes
+// the four entities the JSX runtime produces (&lt; &gt; &quot; &amp;). Regex-
+// based and intentionally tolerant — over-including a code point is harmless,
+// missing one is silent tofu. mode:'css-static' (commit 3) will swap this for
+// a proper parse5 walk; for mode:'all-text' the regex is plenty.
+function extractPageText(html) {
+  let s = html.replace(
+    /<(script|style|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
+    '',
+  );
+  s = s.replace(/<!--[\s\S]*?-->/g, '');
+  s = s.replace(/<[^>]+>/g, '');
+  s = s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&');
+  return s;
+}
+
+function normalizeFontSubset(input) {
+  if (input == null || input === false) return null;
+  if (input === true) return { mode: 'all-text' };
+  if (typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error(
+      `fontSubset must be true, false, or an options object; got ${JSON.stringify(input)}.`,
+    );
+  }
+  const mode = input.mode ?? 'all-text';
+  if (!VALID_SUBSET_MODES.has(mode)) {
+    throw new Error(
+      `fontSubset.mode must be one of ${[...VALID_SUBSET_MODES].join(', ')}; got ${JSON.stringify(mode)}.`,
+    );
+  }
+  return { mode };
+}
+
 export function createFontRegistry({
   fs,
   topDir,
   assetRegistry,
   autoInstall = false,
   install,
+  fontSubset,
   transcode = (bytes) => transcodeToWoff2(bytes, { autoInstall, topDir, install }),
   subset = (bytes, text) =>
     subsetToWoff2(bytes, text, { autoInstall, topDir, install }),
 }) {
+  const subsetConfig = normalizeFontSubset(fontSubset);
   const calls = [];
-  const jobs = new Map();
 
   function displayPath(absPath) {
     const rel = path.posix.relative(topDir, absPath);
@@ -65,6 +105,7 @@ export function createFontRegistry({
         unicodeRange,
         text,
         preload,
+        subset: subsetProp,
         children: _children,
         ...rest
       } = props;
@@ -122,6 +163,11 @@ export function createFontRegistry({
           `<Font src="${src}">: text must be a non-empty string (in "${displayPath(importerAbsPath)}").`,
         );
       }
+      if (subsetProp !== undefined && typeof subsetProp !== 'boolean') {
+        throw new Error(
+          `<Font src="${src}">: subset must be a boolean; got ${typeof subsetProp}.`,
+        );
+      }
       const extraKeys = Object.keys(rest);
       if (extraKeys.length > 0) {
         throw new Error(
@@ -130,30 +176,25 @@ export function createFontRegistry({
       }
 
       const absSrc = resolveSrc(importerAbsPath, src);
-      const subsetText =
-        text === undefined ? undefined : canonicalSubsetText(text);
-      const jobKey =
-        subsetText === undefined ? absSrc : `${absSrc}\0${subsetText}`;
-      if (!jobs.has(jobKey)) {
-        jobs.set(jobKey, {
-          absSrc,
-          ext,
-          subsetText,
-          importerDisplay: displayPath(importerAbsPath),
-          context: currentStack(),
-        });
-      }
+      // Auto-subset opt-in: per-call `subset` prop overrides the global default.
+      // Explicit `text=` ALWAYS wins over auto-subset (resolved in processAll).
+      const autoSubset = subsetProp ?? !!subsetConfig;
 
       const token = makeToken();
       calls.push({
         token,
-        jobKey,
+        absSrc,
+        ext,
         family,
         weight,
         style,
         display,
         unicodeRange,
         preload: !!preload,
+        text,
+        autoSubset,
+        importerDisplay: displayPath(importerAbsPath),
+        context: currentStack(),
       });
       return { html: token };
     };
@@ -187,7 +228,51 @@ export function createFontRegistry({
     }
   }
 
-  async function processAll() {
+  // Compute the canonical auto-subset text once per build, shared by every
+  // call that opts into auto-subset (scope:'site' is currently the only scope).
+  // The mode defaults to 'all-text' when no global config is set, so per-call
+  // `subset={true}` works without a global flag.
+  function computeAutoSubsetText(pages) {
+    if (!calls.some((c) => c.autoSubset)) return undefined;
+    const mode = subsetConfig?.mode ?? 'all-text';
+    if (mode === 'all-text') {
+      let acc = '';
+      for (const p of pages) acc += extractPageText(p.html);
+      const canon = canonicalSubsetText(acc);
+      return canon.length === 0 ? undefined : canon;
+    }
+    return undefined;
+  }
+
+  async function processAll(pages = []) {
+    const autoSubsetText = computeAutoSubsetText(pages);
+
+    // Build jobs from calls (deferred from render-time so auto-subset text can
+    // be resolved from `pages` first). Explicit `text=` wins over auto-subset.
+    const jobs = new Map();
+    const callJobKey = new Array(calls.length);
+    for (let i = 0; i < calls.length; i++) {
+      const call = calls[i];
+      let subsetText;
+      if (call.text !== undefined) {
+        subsetText = canonicalSubsetText(call.text);
+      } else if (call.autoSubset && autoSubsetText !== undefined) {
+        subsetText = autoSubsetText;
+      }
+      const jobKey =
+        subsetText === undefined ? call.absSrc : `${call.absSrc}\0${subsetText}`;
+      if (!jobs.has(jobKey)) {
+        jobs.set(jobKey, {
+          absSrc: call.absSrc,
+          ext: call.ext,
+          subsetText,
+          importerDisplay: call.importerDisplay,
+          context: call.context,
+        });
+      }
+      callJobKey[i] = jobKey;
+    }
+
     const jobResults = new Map();
     await Promise.all(
       [...jobs.entries()].map(async ([key, job]) => {
@@ -196,8 +281,9 @@ export function createFontRegistry({
     );
 
     const tokenToHtml = new Map();
-    for (const call of calls) {
-      const { url, ext } = jobResults.get(call.jobKey);
+    for (let i = 0; i < calls.length; i++) {
+      const call = calls[i];
+      const { url, ext } = jobResults.get(callJobKey[i]);
       const decls = [`font-family:"${escCssString(call.family)}"`];
       if (call.style !== undefined) decls.push(`font-style:${call.style}`);
       if (call.weight !== undefined) decls.push(`font-weight:${call.weight}`);

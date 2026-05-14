@@ -502,6 +502,248 @@ test('concurrent transcodes of distinct TTFs each yield valid WOFF2 bytes', asyn
   }
 });
 
+// ---- auto-subset via fontSubset config / per-call `subset` prop ----
+
+// Helper: spin up a registry with fontSubset enabled, run a call, scan a
+// constructed `pages` array, return the substituted HTML and emitted files.
+function makeRegistryWithSubset(files, fontSubset) {
+  const fs = makeFs(files);
+  const assetRegistry = createAssetRegistry({ fs, outputDir: '/out' });
+  const fontRegistry = createFontRegistry({
+    fs,
+    topDir: '/in',
+    assetRegistry,
+    fontSubset,
+    transcode: stubTranscode,
+    subset: stubSubset,
+  });
+  return { fs, assetRegistry, fontRegistry };
+}
+
+test('fontSubset: true subsets every font to the union of all rendered text', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    true,
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  const { html: token } = Font({ src: './f.otf', family: 'X' });
+  const pages = [{ outPath: '/out/index.html', html: '<p>Hello world!</p>' }];
+  const substitute = await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const html = substitute(token);
+  const m = html.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/);
+  assert.ok(m, `unexpected html: ${html}`);
+  const written = await fs.promises.readFile(`/out${m[1]}`, 'utf8');
+  // canonical glyph set for "Hello world!" = ' ', '!', 'H', 'd', 'e', 'l',
+  // 'o', 'r', 'w' (sorted unique)
+  assert.equal(written, 'wOF2-subset[ !Hdelorw]');
+});
+
+test('per-call subset={true} opts in without global config', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    undefined,
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  const { html: token } = Font({ src: './f.otf', family: 'X', subset: true });
+  const pages = [{ outPath: '/out/index.html', html: '<p>abc</p>' }];
+  const substitute = await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const html = substitute(token);
+  const m = html.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/);
+  const written = await fs.promises.readFile(`/out${m[1]}`, 'utf8');
+  assert.equal(written, 'wOF2-subset[abc]');
+});
+
+test('per-call subset={false} opts out when fontSubset is on', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.ttf': 'TTFRAW' },
+    true,
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  Font({ src: './f.ttf', family: 'X', subset: false });
+  const pages = [{ outPath: '/out/index.html', html: '<p>abc</p>' }];
+  await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const files = await fs.promises.readdir('/out/_assets');
+  const bytes = await fs.promises.readFile(`/out/_assets/${files[0]}`);
+  // transcoded (STUB_WOFF2), not subset
+  assert.equal(Buffer.compare(bytes, STUB_WOFF2), 0);
+});
+
+test('explicit text= wins over auto-subset on the same call', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    undefined,
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  Font({ src: './f.otf', family: 'X', subset: true, text: 'abc' });
+  const pages = [{ outPath: '/out/index.html', html: '<p>zzz</p>' }];
+  await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const files = await fs.promises.readdir('/out/_assets');
+  const bytes = await fs.promises.readFile(`/out/_assets/${files[0]}`, 'utf8');
+  assert.equal(bytes, 'wOF2-subset[abc]');
+});
+
+test('auto-subset unions text across multiple pages (scope:site)', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    true,
+  );
+  const Font = fontRegistry.forImporter('/in/layouts/default.md');
+  Font({ src: '/f.otf', family: 'X' });
+  const pages = [
+    { outPath: '/out/index.html', html: '<p>foo</p>' },
+    { outPath: '/out/about/index.html', html: '<p>bar</p>' },
+  ];
+  await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const files = await fs.promises.readdir('/out/_assets');
+  assert.equal(files.length, 1);
+  const bytes = await fs.promises.readFile(`/out/_assets/${files[0]}`, 'utf8');
+  // union of "foo" and "bar" = a, b, f, o, r (sorted unique)
+  assert.equal(bytes, 'wOF2-subset[abfor]');
+});
+
+test('script/style/template contents are excluded from the subset text', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    true,
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  Font({ src: './f.otf', family: 'X' });
+  const pages = [
+    {
+      outPath: '/out/index.html',
+      html:
+        '<p>abc</p><script>alert("zzz")</script><style>.x{color:#fff}</style>',
+    },
+  ];
+  await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const files = await fs.promises.readdir('/out/_assets');
+  const bytes = await fs.promises.readFile(`/out/_assets/${files[0]}`, 'utf8');
+  assert.equal(bytes, 'wOF2-subset[abc]');
+});
+
+test('HTML entities &lt; &gt; &quot; &amp; are decoded in the subset text', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    true,
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  Font({ src: './f.otf', family: 'X' });
+  const pages = [
+    { outPath: '/out/index.html', html: '<p>&lt;&gt;&quot;&amp;</p>' },
+  ];
+  await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const files = await fs.promises.readdir('/out/_assets');
+  const bytes = await fs.promises.readFile(`/out/_assets/${files[0]}`, 'utf8');
+  // sorted unique: '"', '&', '<', '>'
+  assert.equal(bytes, 'wOF2-subset["&<>]');
+});
+
+test('two calls to the same src with auto-subset share one asset', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    true,
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  Font({ src: './f.otf', family: 'A', weight: 400 });
+  Font({ src: './f.otf', family: 'A', weight: 700 });
+  const pages = [{ outPath: '/out/index.html', html: '<p>abc</p>' }];
+  await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const files = await fs.promises.readdir('/out/_assets');
+  // both calls get the same auto-subset text "abc" → one job → one asset
+  assert.equal(files.length, 1);
+});
+
+test('non-boolean subset prop is rejected', async () => {
+  const { fontRegistry } = makeRegistry({});
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  assert.throws(
+    () => Font({ src: './f.ttf', family: 'X', subset: 'yes' }),
+    /subset must be a boolean/,
+  );
+});
+
+test('invalid fontSubset.mode is rejected with a clear error', () => {
+  const fs = makeFs({});
+  const assetRegistry = createAssetRegistry({ fs, outputDir: '/out' });
+  assert.throws(
+    () =>
+      createFontRegistry({
+        fs,
+        topDir: '/in',
+        assetRegistry,
+        fontSubset: { mode: 'browser' },
+      }),
+    /fontSubset\.mode must be one of all-text; got "browser"/,
+  );
+});
+
+test('fontSubset of a wrong type is rejected', () => {
+  const fs = makeFs({});
+  const assetRegistry = createAssetRegistry({ fs, outputDir: '/out' });
+  assert.throws(
+    () =>
+      createFontRegistry({
+        fs,
+        topDir: '/in',
+        assetRegistry,
+        fontSubset: 'yes',
+      }),
+    /fontSubset must be true, false, or an options object/,
+  );
+});
+
+test('auto-subset with no pages falls back to transcode/passthrough', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.ttf': 'TTFRAW' },
+    true,
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  Font({ src: './f.ttf', family: 'X' });
+  await fontRegistry.processAll([]);
+  await assetRegistry.writeAll();
+  const files = await fs.promises.readdir('/out/_assets');
+  assert.equal(files.length, 1);
+  const bytes = await fs.promises.readFile(`/out/_assets/${files[0]}`);
+  // transcoded (STUB_WOFF2), not subset
+  assert.equal(Buffer.compare(bytes, STUB_WOFF2), 0);
+});
+
+test('fontSubset: true end-to-end through build() with the real subsetter', async () => {
+  const fs = makeFs({});
+  fs.mkdirSync('/in', { recursive: true });
+  fs.writeFileSync('/in/font.ttf', FIXTURE_TTF);
+  fs.writeFileSync(
+    '/in/index.md',
+    "import {Font} from 'xtatic:font';\n\n" +
+      '<Font src="./font.ttf" family="X" />\n\n' +
+      'Hello world\n',
+  );
+  await build({
+    inputDir: '/in',
+    outputDir: '/out',
+    fs,
+    fontSubset: true,
+  });
+  const html = fs.readFileSync('/out/index.html', 'utf8');
+  const m = html.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/);
+  assert.ok(m);
+  const written = fs.readFileSync(`/out${m[1]}`);
+  assert.equal(written.slice(0, 4).toString('ascii'), 'wOF2');
+  // a 10-glyph subset (" Hdelorw") must be well under the ASCII fixture
+  assert.ok(
+    written.length < FIXTURE_TTF.length / 2,
+    `subset not small enough: ${written.length} vs ${FIXTURE_TTF.length}`,
+  );
+});
+
 test('concurrent subsets of one TTF to distinct glyph sets each yield valid WOFF2', async () => {
   const fs = makeFs({});
   fs.mkdirSync('/in', { recursive: true });

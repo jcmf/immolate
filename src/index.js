@@ -118,6 +118,7 @@ async function buildImpl({
   assetInlineThreshold,
   autoInstall = false,
   install,
+  fontSubset,
   fs,
 }) {
   inputDir = path.posix.resolve(inputDir);
@@ -158,6 +159,7 @@ async function buildImpl({
     assetRegistry,
     autoInstall,
     install,
+    fontSubset,
   });
   const plainAssetRegistry = createPlainAssetRegistry({
     fs,
@@ -192,7 +194,7 @@ async function buildImpl({
   renderTree(root, [], outputDir, pages);
   const imageSubstitute = await imageRegistry.processAll();
   const styleSubstitute = await styleRegistry.processAll();
-  const fontSubstitute = await fontRegistry.processAll();
+  const fontSubstitute = await fontRegistry.processAll(pages);
   const assetSubstitute = await plainAssetRegistry.processAll(pages);
   await assetRegistry.writeAll();
   await plainAssetRegistry.writeAll();

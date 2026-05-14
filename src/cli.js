@@ -74,6 +74,7 @@ let assetInlineThreshold;
 let errorLayout;
 let errorReloadInterval;
 let autoInstall = false;
+let fontSubset;
 
 const pkgPath = path.join(topDir, 'package.json');
 if (fs.existsSync(pkgPath)) {
@@ -122,6 +123,11 @@ if (fs.existsSync(pkgPath)) {
       process.exit(1);
     }
     autoInstall = pkg.xtatic.autoInstall;
+  }
+  if (pkg.xtatic?.fontSubset !== undefined) {
+    // Validation is deferred to createFontRegistry — keep the cli thin and let
+    // a single source of truth (font.js normalizeFontSubset) emit the error.
+    fontSubset = pkg.xtatic.fontSubset;
   }
   if (pkg.xtatic?.errorReloadInterval != null) {
     const v = pkg.xtatic.errorReloadInterval;
@@ -210,6 +216,7 @@ const buildOptions = {
   styleInlineThreshold,
   assetInlineThreshold,
   autoInstall,
+  fontSubset,
 };
 
 if (command === 'build') {
