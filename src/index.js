@@ -210,7 +210,7 @@ async function buildImpl({
   await plainAssetRegistry.writeAll();
   const substitute = (html, outPath) =>
     assetSubstitute(
-      fontSubstitute(styleSubstitute(imageSubstitute(html))),
+      fontSubstitute(styleSubstitute(imageSubstitute(html)), outPath),
       outPath,
     );
   await writePages(pages, substitute, fs);

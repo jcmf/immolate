@@ -1096,6 +1096,162 @@ test('preloadHedge: invalid value is rejected', () => {
   );
 });
 
+// ---- scope:'page' (per-page subsets) ----
+
+test('scope:"page" — each page gets its own subset (all-text)', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    { mode: 'all-text', scope: 'page' },
+  );
+  const Font = fontRegistry.forImporter('/in/layouts/default.md');
+  const { html: token } = Font({ src: '/f.otf', family: 'X' });
+  const pages = [
+    { outPath: '/out/index.html', html: `${token}<p>foo</p>` },
+    { outPath: '/out/about/index.html', html: `${token}<p>bar</p>` },
+  ];
+  const substitute = await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const idxHtml = substitute(pages[0].html, pages[0].outPath);
+  const aboutHtml = substitute(pages[1].html, pages[1].outPath);
+  const idxUrl = idxHtml.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/)[1];
+  const aboutUrl = aboutHtml.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/)[1];
+  // Different pages → different glyph sets → different assets.
+  assert.notEqual(idxUrl, aboutUrl);
+  const idxBytes = await fs.promises.readFile(`/out${idxUrl}`, 'utf8');
+  const aboutBytes = await fs.promises.readFile(`/out${aboutUrl}`, 'utf8');
+  assert.equal(idxBytes, 'wOF2-subset[fo]');
+  assert.equal(aboutBytes, 'wOF2-subset[abr]');
+});
+
+test('scope:"page" — pages with identical text share an asset', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    { mode: 'all-text', scope: 'page' },
+  );
+  const Font = fontRegistry.forImporter('/in/layouts/default.md');
+  const { html: token } = Font({ src: '/f.otf', family: 'X' });
+  const pages = [
+    { outPath: '/out/a/index.html', html: `${token}<p>same</p>` },
+    { outPath: '/out/b/index.html', html: `${token}<p>same</p>` },
+  ];
+  await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  // Both pages canonicalize to the same glyph set → one job → one asset file.
+  const files = await fs.promises.readdir('/out/_assets');
+  assert.equal(files.length, 1);
+});
+
+test('scope:"page" — substitute(html, outPath) returns the right URL per page', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    { mode: 'all-text', scope: 'page' },
+  );
+  const Font = fontRegistry.forImporter('/in/layouts/default.md');
+  const { html: token } = Font({ src: '/f.otf', family: 'X' });
+  const idxPage = { outPath: '/out/index.html', html: `${token}<p>foo</p>` };
+  const aboutPage = {
+    outPath: '/out/about/index.html',
+    html: `${token}<p>bar</p>`,
+  };
+  const substitute = await fontRegistry.processAll([idxPage, aboutPage]);
+  await assetRegistry.writeAll();
+  // Same token on different pages resolves to different URLs.
+  const idxOut = substitute(idxPage.html, idxPage.outPath);
+  const aboutOut = substitute(aboutPage.html, aboutPage.outPath);
+  const idxUrl = idxOut.match(/url\("([^"]+)"\)/)[1];
+  const aboutUrl = aboutOut.match(/url\("([^"]+)"\)/)[1];
+  assert.notEqual(idxUrl, aboutUrl);
+  // Calling substitute with an unknown outPath leaves tokens intact (defensive).
+  const stray = substitute(`${token}`, '/nowhere');
+  assert.match(stray, /__XTATIC_FONT_/);
+});
+
+test('scope:"page" — token absent from a page → no job emitted for that page', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    { mode: 'all-text', scope: 'page' },
+  );
+  const Font = fontRegistry.forImporter('/in/layouts/default.md');
+  const { html: token } = Font({ src: '/f.otf', family: 'X' });
+  const pages = [
+    { outPath: '/out/a/index.html', html: `${token}<p>foo</p>` },
+    { outPath: '/out/b/index.html', html: '<p>no font here</p>' }, // no token
+  ];
+  await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  // Only one (call, page) combo with the token → one asset.
+  const files = await fs.promises.readdir('/out/_assets');
+  assert.equal(files.length, 1);
+});
+
+test('scope:"page" — css-static attributes per-page glyph sets', async () => {
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    { mode: 'css-static', scope: 'page' },
+  );
+  const Font = fontRegistry.forImporter('/in/layouts/default.md');
+  const { html: token } = Font({ src: '/f.otf', family: 'Inter' });
+  // Both pages declare body{font-family:Inter} via inline <style>.
+  const css = '<style>body{font-family:Inter}</style>';
+  const pages = [
+    {
+      outPath: '/out/a/index.html',
+      html: `<body>${token}${css}<p>aaa</p></body>`,
+    },
+    {
+      outPath: '/out/b/index.html',
+      html: `<body>${token}${css}<p>zzz</p></body>`,
+    },
+  ];
+  await fontRegistry.processAll(pages, { cssForPage: () => [] });
+  await assetRegistry.writeAll();
+  const files = (await fs.promises.readdir('/out/_assets')).sort();
+  assert.equal(files.length, 2);
+  const bag = new Set(
+    await Promise.all(
+      files.map((f) => fs.promises.readFile(`/out/_assets/${f}`, 'utf8')),
+    ),
+  );
+  assert.ok(bag.has('wOF2-subset[a]'));
+  assert.ok(bag.has('wOF2-subset[z]'));
+});
+
+test('scope:"page" + hedge:"full" — primary differs per page, complement shared if cov is shared', async () => {
+  const cov = new Set([97, 98, 99, 100, 101, 102]); // a-f
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    { mode: 'all-text', scope: 'page', hedge: 'full' },
+    { getCoverage: () => cov },
+  );
+  const Font = fontRegistry.forImporter('/in/layouts/default.md');
+  const { html: token } = Font({ src: '/f.otf', family: 'X' });
+  const pages = [
+    { outPath: '/out/a/index.html', html: `${token}<p>ab</p>` },
+    { outPath: '/out/b/index.html', html: `${token}<p>cd</p>` },
+  ];
+  await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const files = await fs.promises.readdir('/out/_assets');
+  // Page A: primary=ab, complement=cdef. Page B: primary=cd, complement=abef.
+  // 4 distinct glyph sets total → 4 assets.
+  assert.equal(files.length, 4);
+});
+
+test('scope: invalid value is rejected', () => {
+  const fs = makeFs({});
+  const assetRegistry = createAssetRegistry({ fs, outputDir: '/out' });
+  assert.throws(
+    () =>
+      createFontRegistry({
+        fs,
+        topDir: '/in',
+        assetRegistry,
+        fontSubset: { mode: 'all-text', scope: 'cluster' },
+      }),
+    /fontSubset\.scope must be one of site, page/,
+  );
+});
+
 test('mode:"css-static" — invalid precision is rejected', () => {
   const fs = makeFs({});
   const assetRegistry = createAssetRegistry({ fs, outputDir: '/out' });
@@ -1137,6 +1293,39 @@ test('fontSubset:{mode:"all-text"} end-to-end through build() with the real subs
     written.length < FIXTURE_TTF.length / 2,
     `subset not small enough: ${written.length} vs ${FIXTURE_TTF.length}`,
   );
+});
+
+test('scope:"page" end-to-end through build() with the real subsetter', async () => {
+  const fs = makeFs({});
+  fs.mkdirSync('/in', { recursive: true });
+  fs.writeFileSync('/in/font.ttf', FIXTURE_TTF);
+  fs.writeFileSync('/in/site.css', 'body{font-family:Inter}');
+  // Two pages with different body text; same Font + Style refs at top so the
+  // tokens line up. scope:'page' should give each page its own subset asset.
+  const header =
+    "import {Font} from 'xtatic:font';\n" +
+    "import {Style} from 'xtatic:style';\n\n" +
+    '<Font src="./font.ttf" family="Inter" />\n' +
+    '<Style src="./site.css" />\n\n';
+  fs.writeFileSync('/in/index.md', `${header}foo\n`);
+  fs.writeFileSync('/in/about.md', `${header}bar\n`);
+  await build({
+    inputDir: '/in',
+    outputDir: '/out',
+    fs,
+    fontSubset: { mode: 'css-static', scope: 'page' },
+  });
+  const idx = fs.readFileSync('/out/index.html', 'utf8');
+  const about = fs.readFileSync('/out/about/index.html', 'utf8');
+  const idxUrl = idx.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/)[1];
+  const aboutUrl = about.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/)[1];
+  // Different page text → different glyph sets → different assets per page.
+  assert.notEqual(idxUrl, aboutUrl);
+  // Both files exist and are valid WOFF2.
+  for (const url of [idxUrl, aboutUrl]) {
+    const bytes = fs.readFileSync(`/out${url}`);
+    assert.equal(bytes.slice(0, 4).toString('ascii'), 'wOF2');
+  }
 });
 
 test('hedge:"full" end-to-end with real fontkit — emits two faces and disjoint ranges', async () => {

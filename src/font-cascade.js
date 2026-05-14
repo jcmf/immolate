@@ -640,25 +640,33 @@ export function faceKey(face, precision) {
   return `${family}\0${wlo}-${whi}\0${face.style}\0${face.unicodeRange ?? ''}`;
 }
 
-// Public entry: compute per-face code-point sets for every page.
+// Public entry: compute per-face code-point sets, one map per page.
 //
-//   pages          : [{outPath, html}]
-//   getCssForPage  : (html) => string[]  CSS reaching this page
+//   pages          : [{outPath, html, css?}] — `html` is the page text the
+//                    DOM walk parses; `css` (optional) is the pre-resolved
+//                    CSS reaching this page (string[]). Falls back to
+//                    `getCssForPage(html)` when `css` is absent.
+//   getCssForPage  : (html) => string[]  CSS reaching this page (legacy)
 //   registeredFaces: [{family, weight, style, unicodeRange}] from <Font> calls
 //   precision      : 'family' | 'face'
 //
-// Returns Map<faceKey, Set<codepoint>>.
+// Returns Map<pageOutPath, Map<faceKey, Set<codepoint>>>. font.js merges
+// across pages for scope:'site' or uses the per-page maps directly for
+// scope:'page'.
 export function computeCodePointsByFace({
   pages,
   getCssForPage,
   registeredFaces,
   precision = 'face',
 }) {
-  const byFace = new Map();
+  const byPage = new Map();
 
   for (const page of pages) {
+    const byFace = new Map();
+    byPage.set(page.outPath, byFace);
     const doc = parse(page.html);
-    const cssTexts = getCssForPage(page.html) ?? [];
+    const cssTexts =
+      page.css ?? (getCssForPage ? getCssForPage(page.html) : []) ?? [];
 
     // Pull inline <style> blocks from the page itself.
     const inlineStyles = [];
@@ -732,7 +740,7 @@ export function computeCodePointsByFace({
     walk(doc, ROOT_COMPUTED);
   }
 
-  return byFace;
+  return byPage;
 }
 
 // Re-exports for tests.

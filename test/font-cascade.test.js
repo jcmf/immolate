@@ -7,16 +7,26 @@ import {
 
 // Render a single page and return the Set of code points (as a sorted string
 // of characters) attributed to a given face by precision:'face' matching.
+// computeCodePointsByFace returns Map<pageOutPath, Map<faceKey, Set<cp>>>;
+// for the single-page tests below we merge to one map for assertions.
 function attribute({ html, css = '', faces, precision = 'face' }) {
   const pages = [{ outPath: '/p', html }];
-  const result = computeCodePointsByFace({
+  const byPage = computeCodePointsByFace({
     pages,
     getCssForPage: () => (css ? [css] : []),
     registeredFaces: faces,
     precision,
   });
+  const merged = new Map();
+  for (const pageMap of byPage.values()) {
+    for (const [k, set] of pageMap) {
+      let acc = merged.get(k);
+      if (!acc) merged.set(k, (acc = new Set()));
+      for (const cp of set) acc.add(cp);
+    }
+  }
   const out = {};
-  for (const [k, set] of result) {
+  for (const [k, set] of merged) {
     out[k] = [...set]
       .sort((a, b) => a - b)
       .map((cp) => String.fromCodePoint(cp))

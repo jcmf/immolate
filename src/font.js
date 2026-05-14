@@ -7,6 +7,11 @@ import { computeCodePointsByFace, faceKey } from './font-cascade.js';
 import { attachContext, currentStack } from './render-context.js';
 
 const TOKEN_RE = /__XTATIC_FONT_[a-f0-9]+__/g;
+// Strip all xtatic tokens (FONT/IMG/STYLE/ASSET) before scanning page text
+// for glyph attribution — they're internal placeholders, not rendered glyphs,
+// and would otherwise contribute their ASCII characters (X, T, A, I, C, F,
+// _, hex digits) to the kept set.
+const ALL_TOKEN_RE = /__XTATIC_(?:IMG|STYLE|FONT|ASSET)_[a-f0-9]+__/g;
 const VALID_EXTS = new Set(['ttf', 'otf', 'woff', 'woff2']);
 const TRANSCODE_EXTS = new Set(['ttf', 'otf']);
 const VALID_DISPLAY = new Set([
@@ -21,6 +26,7 @@ const VALID_SUBSET_MODES = new Set(['all-text', 'css-static']);
 const VALID_PRECISIONS = new Set(['family', 'face']);
 const VALID_HEDGES = new Set(['none', 'latin1', 'full']);
 const VALID_PRELOAD_HEDGES = new Set([false, 'prefetch', 'preload']);
+const VALID_SCOPES = new Set(['site', 'page']);
 const MIME = { woff: 'font/woff', woff2: 'font/woff2' };
 
 // Run-length encode a sorted array of code points into a CSS `unicode-range`
@@ -79,6 +85,7 @@ function extractPageText(html) {
   );
   s = s.replace(/<!--[\s\S]*?-->/g, '');
   s = s.replace(/<[^>]+>/g, '');
+  s = s.replace(ALL_TOKEN_RE, '');
   s = s
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
@@ -87,10 +94,23 @@ function extractPageText(html) {
   return s;
 }
 
+// Pre-strip xtatic tokens from a page's html before handing it to the cascade
+// engine, so the tokens don't appear as text content (which would attribute
+// their characters to whatever face the body resolves to).
+function stripTokens(html) {
+  return html.replace(ALL_TOKEN_RE, '');
+}
+
 function normalizeFontSubset(input) {
   if (input == null || input === false) return null;
   if (input === true) {
-    return { mode: 'css-static', precision: 'face', hedge: 'full', preloadHedge: false };
+    return {
+      mode: 'css-static',
+      precision: 'face',
+      scope: 'site',
+      hedge: 'full',
+      preloadHedge: false,
+    };
   }
   if (typeof input !== 'object' || Array.isArray(input)) {
     throw new Error(
@@ -125,7 +145,13 @@ function normalizeFontSubset(input) {
       `fontSubset.preloadHedge must be false, 'prefetch', or 'preload'; got ${JSON.stringify(preloadHedge)}.`,
     );
   }
-  return { mode, precision, hedge, preloadHedge };
+  const scope = input.scope ?? 'site';
+  if (!VALID_SCOPES.has(scope)) {
+    throw new Error(
+      `fontSubset.scope must be one of ${[...VALID_SCOPES].join(', ')}; got ${JSON.stringify(scope)}.`,
+    );
+  }
+  return { mode, precision, scope, hedge, preloadHedge };
 }
 
 function defaultGetCoverage(bytes) {
@@ -302,23 +328,32 @@ export function createFontRegistry({
     return String.fromCodePoint(...sorted);
   }
 
-  // Resolve each opted-in call's subset text. mode:'all-text' yields one
-  // shared union string; mode:'css-static' yields a per-face glyph set via
-  // the cascade engine, which we then look up per-call by faceKey. Returns
-  // undefined to signal "no auto-subset for this call".
+  // Resolve each opted-in call's subset text. Returns a function
+  // `(call, outPath) => subsetText | undefined`. For scope:'site' the
+  // outPath is ignored; for scope:'page' it picks the per-page glyph set.
   function resolveAutoSubset(pages, opts) {
     if (!calls.some((c) => c.autoSubset)) {
       return () => undefined;
     }
     const mode = subsetConfig?.mode ?? 'css-static';
     const precision = subsetConfig?.precision ?? 'face';
+    const scope = subsetConfig?.scope ?? 'site';
 
     if (mode === 'all-text') {
-      let acc = '';
-      for (const p of pages) acc += extractPageText(p.html);
-      const canon = canonicalSubsetText(acc);
-      if (canon.length === 0) return () => undefined;
-      return () => canon;
+      if (scope === 'site') {
+        let acc = '';
+        for (const p of pages) acc += extractPageText(p.html);
+        const canon = canonicalSubsetText(acc);
+        if (canon.length === 0) return () => undefined;
+        return () => canon;
+      }
+      // scope:'page' — one canonical text per page.
+      const perPage = new Map();
+      for (const p of pages) {
+        const canon = canonicalSubsetText(extractPageText(p.html));
+        if (canon.length > 0) perPage.set(p.outPath, canon);
+      }
+      return (_call, outPath) => perPage.get(outPath);
     }
 
     // css-static
@@ -330,14 +365,24 @@ export function createFontRegistry({
       stretch: 'normal',
       unicodeRange: c.unicodeRange,
     }));
-    const byFace = computeCodePointsByFace({
-      pages,
-      getCssForPage,
+    // Pre-resolve cssForPage on the ORIGINAL html (the seam scans for
+    // style/asset tokens), then hand the cascade engine a token-stripped
+    // copy of the page text plus the resolved CSS baked in. This keeps the
+    // engine from attributing token characters as glyphs while preserving
+    // the cssForPage lookup.
+    const cascadePages = pages.map((p) => ({
+      outPath: p.outPath,
+      html: stripTokens(p.html),
+      css: getCssForPage(p.html),
+    }));
+    const byPage = computeCodePointsByFace({
+      pages: cascadePages,
       registeredFaces,
       precision,
     });
-    return (call) => {
-      const key = faceKey(
+
+    function keyForCall(call) {
+      return faceKey(
         {
           family: call.family,
           weight: call.weight ?? 400,
@@ -346,7 +391,30 @@ export function createFontRegistry({
         },
         precision,
       );
-      const set = byFace.get(key);
+    }
+
+    if (scope === 'site') {
+      // Merge per-page → per-face for the whole site.
+      const byFace = new Map();
+      for (const pageMap of byPage.values()) {
+        for (const [k, set] of pageMap) {
+          let acc = byFace.get(k);
+          if (!acc) byFace.set(k, (acc = new Set()));
+          for (const cp of set) acc.add(cp);
+        }
+      }
+      return (call) => {
+        const set = byFace.get(keyForCall(call));
+        if (!set || set.size === 0) return undefined;
+        return codePointSetToCanonical(set);
+      };
+    }
+
+    // scope:'page' — keep maps separate.
+    return (call, outPath) => {
+      const pageMap = byPage.get(outPath);
+      if (!pageMap) return undefined;
+      const set = pageMap.get(keyForCall(call));
       if (!set || set.size === 0) return undefined;
       return codePointSetToCanonical(set);
     };
@@ -393,13 +461,39 @@ export function createFontRegistry({
   }
 
   async function processAll(pages = [], opts) {
+    const scope = subsetConfig?.scope ?? 'site';
     const autoSubsetFor = resolveAutoSubset(pages, opts);
 
-    // Build jobs from calls. Each call may produce up to two jobs (primary
-    // glyph set + complement). Job dedup by `${absSrc}\0${subsetText}` so two
-    // calls with the same glyph set share an asset. callJobs[i] records the
-    // job keys + unicode-ranges for this call's primary and complement.
+    // For scope:'page' we need to know which pages each call's token appears
+    // in (so we only generate a (call, page) job per actual reference).
+    // tokenToPages[i] = Set<outPath>. For scope:'site' we collapse to one
+    // synthetic '__site__' bucket so the rest of the loop is uniform.
+    const tokenToPages = new Array(calls.length);
+    if (scope === 'page') {
+      const tokenSet = new Set(calls.map((c) => c.token));
+      for (let i = 0; i < calls.length; i++) tokenToPages[i] = new Set();
+      const tokenToIdx = new Map();
+      calls.forEach((c, i) => tokenToIdx.set(c.token, i));
+      for (const p of pages) {
+        const m = p.html.match(TOKEN_RE);
+        if (!m) continue;
+        for (const t of m) {
+          if (!tokenSet.has(t)) continue;
+          tokenToPages[tokenToIdx.get(t)].add(p.outPath);
+        }
+      }
+    } else {
+      for (let i = 0; i < calls.length; i++) {
+        tokenToPages[i] = new Set(['__site__']);
+      }
+    }
+
+    // Build jobs. Each (call, page-bucket) produces up to two jobs (primary
+    // + optional complement). Job dedup by `${absSrc}\0${subsetText}` so any
+    // two combos with the same glyph set share an asset.
     const jobs = new Map();
+    // callJobs[i] is Map<bucketKey, {primaryJobKey, primaryRange, complementJobKey, complementRange}>
+    // where bucketKey is outPath (scope:'page') or '__site__' (scope:'site').
     const callJobs = new Array(calls.length);
 
     function ensureJob(absSrc, ext, subsetText, importerDisplay, context) {
@@ -413,65 +507,71 @@ export function createFontRegistry({
 
     for (let i = 0; i < calls.length; i++) {
       const call = calls[i];
+      const buckets = new Map();
+      callJobs[i] = buckets;
 
-      let primarySubsetText;
-      if (call.text !== undefined) {
-        primarySubsetText = canonicalSubsetText(call.text);
-      } else if (call.autoSubset) {
-        const auto = autoSubsetFor(call);
-        if (auto !== undefined) primarySubsetText = auto;
-      }
+      const targetBuckets =
+        tokenToPages[i].size === 0 && scope === 'page'
+          ? new Set(['__site__']) // call's token never appears: still emit something safe
+          : tokenToPages[i];
 
-      const primaryCpSet =
-        primarySubsetText === undefined
-          ? null
-          : new Set([...primarySubsetText].map((c) => c.codePointAt(0)));
+      for (const bucket of targetBuckets) {
+        const outPath = bucket === '__site__' ? null : bucket;
 
-      // Hedge: compute complement only when primary exists and is a real
-      // subset (not the whole transcoded/passthrough font).
-      const complementCpSet = await computeComplement(call, primaryCpSet);
+        let primarySubsetText;
+        if (call.text !== undefined) {
+          primarySubsetText = canonicalSubsetText(call.text);
+        } else if (call.autoSubset) {
+          const auto = autoSubsetFor(call, outPath);
+          if (auto !== undefined) primarySubsetText = auto;
+        }
 
-      // If hedge applies and the complement is non-empty, both faces get
-      // a unicode-range to partition the code-point space. Otherwise the
-      // primary keeps the user's optional unicodeRange (or none) verbatim.
-      let primaryRange = null;
-      let complementRange = null;
-      if (complementCpSet) {
-        primaryRange = encodeUnicodeRange(
-          [...primaryCpSet].sort((a, b) => a - b),
-        );
-        complementRange = encodeUnicodeRange(
-          [...complementCpSet].sort((a, b) => a - b),
-        );
-      }
+        const primaryCpSet =
+          primarySubsetText === undefined
+            ? null
+            : new Set([...primarySubsetText].map((c) => c.codePointAt(0)));
 
-      const primaryJobKey = ensureJob(
-        call.absSrc,
-        call.ext,
-        primarySubsetText,
-        call.importerDisplay,
-        call.context,
-      );
-      let complementJobKey = null;
-      if (complementCpSet) {
-        const complementText = String.fromCodePoint(
-          ...[...complementCpSet].sort((a, b) => a - b),
-        );
-        complementJobKey = ensureJob(
+        const complementCpSet = await computeComplement(call, primaryCpSet);
+
+        let primaryRange = null;
+        let complementRange = null;
+        if (complementCpSet) {
+          primaryRange = encodeUnicodeRange(
+            [...primaryCpSet].sort((a, b) => a - b),
+          );
+          complementRange = encodeUnicodeRange(
+            [...complementCpSet].sort((a, b) => a - b),
+          );
+        }
+
+        const primaryJobKey = ensureJob(
           call.absSrc,
           call.ext,
-          complementText,
+          primarySubsetText,
           call.importerDisplay,
           call.context,
         );
-      }
+        let complementJobKey = null;
+        if (complementCpSet) {
+          const complementText = String.fromCodePoint(
+            ...[...complementCpSet].sort((a, b) => a - b),
+          );
+          complementJobKey = ensureJob(
+            call.absSrc,
+            call.ext,
+            complementText,
+            call.importerDisplay,
+            call.context,
+          );
+        }
 
-      callJobs[i] = {
-        primaryJobKey,
-        primaryRange,
-        complementJobKey,
-        complementRange,
-      };
+        buckets.set(bucket, {
+          primaryJobKey,
+          primaryRange,
+          complementJobKey,
+          complementRange,
+        });
+      }
     }
 
     const jobResults = new Map();
@@ -489,22 +589,17 @@ export function createFontRegistry({
       if (call.weight !== undefined) decls.push(`font-weight:${call.weight}`);
       if (call.display !== undefined)
         decls.push(`font-display:${call.display}`);
-      // User's explicit unicodeRange wins over a hedge-computed range — that
-      // case is gated above (hedge skipped when call.unicodeRange is set).
       const rangeToUse = call.unicodeRange ?? range;
       if (rangeToUse) decls.push(`unicode-range:${rangeToUse}`);
       decls.push(`src:url("${url}") format("${ext}")`);
       return `@font-face{${decls.join(';')}}`;
     }
 
-    const tokenToHtml = new Map();
-    for (let i = 0; i < calls.length; i++) {
-      const call = calls[i];
+    function buildHtmlFor(call, resolution) {
       const { primaryJobKey, primaryRange, complementJobKey, complementRange } =
-        callJobs[i];
+        resolution;
       const primary = jobResults.get(primaryJobKey);
       const complement = complementJobKey ? jobResults.get(complementJobKey) : null;
-
       const faces = [renderFace(call, primary.url, primary.ext, primaryRange)];
       if (complement) {
         faces.push(
@@ -512,7 +607,6 @@ export function createFontRegistry({
         );
       }
       const styleBlock = `<style>${faces.join('')}</style>`;
-
       const preloadHtml = [];
       if (call.preload) {
         preloadHtml.push(
@@ -524,12 +618,37 @@ export function createFontRegistry({
           `<link rel="${preloadHedgeKind}" as="font" type="${MIME[complement.ext]}" href="${complement.url}" crossorigin>`,
         );
       }
-      tokenToHtml.set(call.token, preloadHtml.join('') + styleBlock);
+      return preloadHtml.join('') + styleBlock;
     }
 
-    return function substitute(html) {
-      if (tokenToHtml.size === 0) return html;
-      return html.replace(TOKEN_RE, (m) => tokenToHtml.get(m) ?? m);
+    if (scope === 'site') {
+      // One global tokenToHtml; substitute is page-agnostic (today's shape).
+      const tokenToHtml = new Map();
+      for (let i = 0; i < calls.length; i++) {
+        const resolution = callJobs[i].get('__site__');
+        if (!resolution) continue;
+        tokenToHtml.set(calls[i].token, buildHtmlFor(calls[i], resolution));
+      }
+      return function substitute(html) {
+        if (tokenToHtml.size === 0) return html;
+        return html.replace(TOKEN_RE, (m) => tokenToHtml.get(m) ?? m);
+      };
+    }
+
+    // scope:'page' — per-page tokenToHtml; substitute is page-aware.
+    const tokenToHtmlByPage = new Map();
+    for (let i = 0; i < calls.length; i++) {
+      for (const [bucket, resolution] of callJobs[i]) {
+        if (bucket === '__site__') continue;
+        let map = tokenToHtmlByPage.get(bucket);
+        if (!map) tokenToHtmlByPage.set(bucket, (map = new Map()));
+        map.set(calls[i].token, buildHtmlFor(calls[i], resolution));
+      }
+    }
+    return function substitute(html, outPath) {
+      const map = tokenToHtmlByPage.get(outPath);
+      if (!map || map.size === 0) return html;
+      return html.replace(TOKEN_RE, (m) => map.get(m) ?? m);
     };
   }
 
