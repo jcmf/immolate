@@ -194,8 +194,13 @@ async function buildImpl({
   renderTree(root, [], outputDir, pages);
   const imageSubstitute = await imageRegistry.processAll();
   const styleSubstitute = await styleRegistry.processAll();
-  const fontSubstitute = await fontRegistry.processAll(pages);
+  // Plain-asset runs before font so the font registry can ask
+  // plainAssetRegistry.cssForPage(html) (alongside styleRegistry.cssForPage)
+  // for the CSS that reaches each page — needed by the css-static cascade
+  // engine (commit 3+). Substitute composition is order-independent because
+  // token namespaces are disjoint.
   const assetSubstitute = await plainAssetRegistry.processAll(pages);
+  const fontSubstitute = await fontRegistry.processAll(pages);
   await assetRegistry.writeAll();
   await plainAssetRegistry.writeAll();
   const substitute = (html, outPath) =>

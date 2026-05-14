@@ -66,6 +66,10 @@ export function createPlainAssetRegistry({
 }) {
   const calls = [];
   const colocatedWrites = new Map();
+  // absSrc → rewritten CSS text, populated during processAll for any `.css`
+  // entry. Kept around so the font-cascade engine (commit 3) can call
+  // cssForPage(html) and learn which stylesheets reach each page.
+  const resolvedCss = new Map();
 
   function displayPath(absPath) {
     const rel = path.posix.relative(topDir, absPath);
@@ -198,6 +202,7 @@ export function createPlainAssetRegistry({
                 `Asset url("${url}") not found at ${absRef} (referenced from "${displayPath(entry.absSrc)}").`,
             });
             entry.bytes = Buffer.from(rewritten, 'utf8');
+            resolvedCss.set(entry.absSrc, rewritten);
           }
         } catch (e) {
           throw attachContext(e, entry.calls[0]?.context);
@@ -320,5 +325,28 @@ export function createPlainAssetRegistry({
     }
   }
 
-  return { forImporter, processAll, writeAll };
+  // Returns the resolved CSS text of every stylesheet-kind asset token that
+  // appears in `html`, deduped by source. Must be called after processAll();
+  // counterpart to styleRegistry.cssForPage. Non-stylesheet `.css` refs (e.g.
+  // <link rel=preload as=style>) are excluded — they're emitted as data:/asset
+  // URLs and the browser only fetches them if the cascade calls for it, but
+  // for static analysis of which CSS *rules* reach a page they don't apply.
+  function cssForPage(html) {
+    const tokens = html.match(TOKEN_RE);
+    if (!tokens) return [];
+    const tokenSet = new Set(tokens);
+    const srcs = new Set();
+    for (const call of calls) {
+      if (call.kind !== 'stylesheet') continue;
+      if (tokenSet.has(call.token)) srcs.add(call.absSrc);
+    }
+    const out = [];
+    for (const src of srcs) {
+      const css = resolvedCss.get(src);
+      if (css != null) out.push(css);
+    }
+    return out;
+  }
+
+  return { forImporter, processAll, cssForPage, writeAll };
 }

@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Volume, createFsFromVolume } from 'memfs';
 import { build } from '../src/index.js';
+import { createAssetRegistry } from '../src/assets.js';
+import { createPlainAssetRegistry } from '../src/assets-plain.js';
 
 function makeFs(files) {
   return createFsFromVolume(Volume.fromJSON(files));
@@ -430,4 +432,91 @@ test('respects assetInlineThreshold config', async () => {
   });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
   assert.doesNotMatch(html, /data:image/);
+});
+
+// ---- cssForPage seam (consumed by the font-cascade engine in commit 3+) ----
+
+// Builds a registry, runs an `asset(value, opts)` call, scans the resulting
+// token in a synthetic page, runs processAll, and returns the cssForPage
+// output for an html containing the token.
+async function setupPlainAsset({ files, calls }) {
+  const fs = makeFs(files);
+  const assetRegistry = createAssetRegistry({ fs, outputDir: '/out' });
+  const plainAssetRegistry = createPlainAssetRegistry({
+    fs,
+    topDir: '/in',
+    outputDir: '/out',
+    assetRegistry,
+  });
+  const asset = plainAssetRegistry.forImporter('/in/page.mdx');
+  const tokens = calls.map((c) => asset(c.value, c.opts));
+  // Make a page that references every token, so they all get processed.
+  const pageHtml = tokens.join('');
+  await plainAssetRegistry.processAll([
+    { outPath: '/out/index.html', html: pageHtml },
+  ]);
+  return { plainAssetRegistry, tokens, pageHtml };
+}
+
+test('plain-asset cssForPage returns CSS for stylesheet-kind tokens', async () => {
+  const { plainAssetRegistry, tokens } = await setupPlainAsset({
+    files: { '/in/a.css': '.a { color: red; }' },
+    calls: [{ value: './a.css', opts: { kind: 'stylesheet' } }],
+  });
+  assert.deepEqual(plainAssetRegistry.cssForPage(tokens[0]), [
+    '.a { color: red; }',
+  ]);
+});
+
+test('plain-asset cssForPage excludes non-stylesheet tokens (e.g. img)', async () => {
+  const { plainAssetRegistry, tokens } = await setupPlainAsset({
+    files: { '/in/pic.png': 'PNGBYTES' },
+    calls: [{ value: './pic.png', opts: {} }],
+  });
+  assert.deepEqual(plainAssetRegistry.cssForPage(tokens[0]), []);
+});
+
+test('plain-asset cssForPage excludes .css refs with non-stylesheet kind', async () => {
+  // A <link rel="preload" as="style" href="x.css"> doesn't get kind:'stylesheet'
+  // from recma-assets — it's a preload, not a stylesheet at parse time.
+  const { plainAssetRegistry, tokens } = await setupPlainAsset({
+    files: { '/in/a.css': '.a {}' },
+    calls: [{ value: './a.css', opts: {} }],
+  });
+  assert.deepEqual(plainAssetRegistry.cssForPage(tokens[0]), []);
+});
+
+test('plain-asset cssForPage dedupes by source', async () => {
+  const { plainAssetRegistry, tokens } = await setupPlainAsset({
+    files: { '/in/a.css': '.a {}' },
+    calls: [
+      { value: './a.css', opts: { kind: 'stylesheet' } },
+      { value: './a.css', opts: { kind: 'stylesheet' } },
+    ],
+  });
+  const result = plainAssetRegistry.cssForPage(tokens.join(''));
+  assert.equal(result.length, 1);
+  assert.equal(result[0], '.a {}');
+});
+
+test('plain-asset cssForPage returns [] when no asset tokens appear in html', async () => {
+  const { plainAssetRegistry } = await setupPlainAsset({
+    files: { '/in/a.css': '.a {}' },
+    calls: [{ value: './a.css', opts: { kind: 'stylesheet' } }],
+  });
+  assert.deepEqual(plainAssetRegistry.cssForPage('<p>no tokens here</p>'), []);
+});
+
+test('plain-asset cssForPage reflects rewritten url() refs in the CSS', async () => {
+  // The CSS contains url('./pic.png') which gets rewritten to /_assets/<hash>.png
+  // before cssForPage sees it — that's the same text the browser would get.
+  const { plainAssetRegistry, tokens } = await setupPlainAsset({
+    files: {
+      '/in/a.css': ".a { background: url('./pic.png'); }",
+      '/in/pic.png': 'PNGBYTES',
+    },
+    calls: [{ value: './a.css', opts: { kind: 'stylesheet' } }],
+  });
+  const [css] = plainAssetRegistry.cssForPage(tokens[0]);
+  assert.match(css, /url\("\/_assets\/[a-f0-9]+\.png"\)/);
 });

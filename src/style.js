@@ -42,6 +42,10 @@ export function createStyleRegistry({
 }) {
   const calls = [];
   const jobs = new Map();
+  // absSrc → rewritten CSS text. Populated during processAll and kept around
+  // so the font-cascade engine (commit 3) can call cssForPage(html) and learn
+  // which CSS reaches each page.
+  const resolvedCss = new Map();
 
   function displayPath(absPath) {
     const rel = path.posix.relative(topDir, absPath);
@@ -83,7 +87,6 @@ export function createStyleRegistry({
   }
 
   async function processAll() {
-    const jobResults = new Map();
     await Promise.all(
       [...jobs.values()].map(async (job) => {
         try {
@@ -98,7 +101,7 @@ export function createStyleRegistry({
             }
             throw e;
           }
-          jobResults.set(
+          resolvedCss.set(
             job.absSrc,
             await rewriteCssUrls({
               css: raw,
@@ -118,7 +121,7 @@ export function createStyleRegistry({
 
     const tokenToHtml = new Map();
     for (const call of calls) {
-      const css = jobResults.get(call.absSrc);
+      const css = resolvedCss.get(call.absSrc);
       const passAttrs = {};
       for (const [k, v] of Object.entries(call.passThrough)) {
         passAttrs[renameAttr(k)] = v;
@@ -144,5 +147,25 @@ export function createStyleRegistry({
     };
   }
 
-  return { forImporter, processAll };
+  // Returns the resolved CSS text of every <Style src> token that appears in
+  // `html`, deduped by source. Must be called after processAll(). The font-
+  // cascade engine consumes this (paired with plainAssetRegistry.cssForPage)
+  // to learn which CSS reaches each page.
+  function cssForPage(html) {
+    const tokens = html.match(TOKEN_RE);
+    if (!tokens) return [];
+    const tokenSet = new Set(tokens);
+    const srcs = new Set();
+    for (const call of calls) {
+      if (tokenSet.has(call.token)) srcs.add(call.absSrc);
+    }
+    const out = [];
+    for (const src of srcs) {
+      const css = resolvedCss.get(src);
+      if (css != null) out.push(css);
+    }
+    return out;
+  }
+
+  return { forImporter, processAll, cssForPage };
 }

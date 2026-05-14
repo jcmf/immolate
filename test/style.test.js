@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Volume, createFsFromVolume } from 'memfs';
 import { build } from '../src/index.js';
+import { createAssetRegistry } from '../src/assets.js';
+import { createStyleRegistry } from '../src/style.js';
 
 function makeFs(files) {
   return createFsFromVolume(Volume.fromJSON(files));
@@ -267,6 +269,75 @@ test('the unknown-builtin error lists xtatic:style', async () => {
     () => build({ inputDir: '/in', outputDir: '/out', fs }),
     /"xtatic:builtins", "xtatic:image", "xtatic:style", "xtatic:font"/,
   );
+});
+
+// ---- cssForPage seam (consumed by the font-cascade engine in commit 3+) ----
+
+test('cssForPage returns rewritten CSS for tokens that appear in the html', async () => {
+  const fs = makeFs({ '/in/a.css': '.a { color: red; }' });
+  const assetRegistry = createAssetRegistry({ fs, outputDir: '/out' });
+  const styleRegistry = createStyleRegistry({
+    fs,
+    topDir: '/in',
+    assetRegistry,
+  });
+  const Style = styleRegistry.forImporter('/in/page.mdx');
+  const { html: token } = Style({ src: './a.css' });
+  await styleRegistry.processAll();
+  const pageHtml = `<head>${token}</head><body>hi</body>`;
+  assert.deepEqual(styleRegistry.cssForPage(pageHtml), [
+    '.a { color: red; }',
+  ]);
+});
+
+test('cssForPage returns [] when no style tokens appear in the html', async () => {
+  const fs = makeFs({ '/in/a.css': '.a { color: red; }' });
+  const assetRegistry = createAssetRegistry({ fs, outputDir: '/out' });
+  const styleRegistry = createStyleRegistry({
+    fs,
+    topDir: '/in',
+    assetRegistry,
+  });
+  const Style = styleRegistry.forImporter('/in/page.mdx');
+  Style({ src: './a.css' }); // registered but token not in page
+  await styleRegistry.processAll();
+  assert.deepEqual(styleRegistry.cssForPage('<p>hello</p>'), []);
+});
+
+test('cssForPage dedupes by source — two tokens, one CSS file → one entry', async () => {
+  const fs = makeFs({ '/in/a.css': '.a {}' });
+  const assetRegistry = createAssetRegistry({ fs, outputDir: '/out' });
+  const styleRegistry = createStyleRegistry({
+    fs,
+    topDir: '/in',
+    assetRegistry,
+  });
+  const Style = styleRegistry.forImporter('/in/page.mdx');
+  const t1 = Style({ src: './a.css' }).html;
+  const t2 = Style({ src: './a.css' }).html;
+  await styleRegistry.processAll();
+  const result = styleRegistry.cssForPage(`${t1}${t2}`);
+  assert.equal(result.length, 1);
+  assert.equal(result[0], '.a {}');
+});
+
+test('cssForPage returns CSS from multiple distinct sources', async () => {
+  const fs = makeFs({
+    '/in/a.css': '.a {}',
+    '/in/b.css': '.b {}',
+  });
+  const assetRegistry = createAssetRegistry({ fs, outputDir: '/out' });
+  const styleRegistry = createStyleRegistry({
+    fs,
+    topDir: '/in',
+    assetRegistry,
+  });
+  const Style = styleRegistry.forImporter('/in/page.mdx');
+  const t1 = Style({ src: './a.css' }).html;
+  const t2 = Style({ src: './b.css' }).html;
+  await styleRegistry.processAll();
+  const result = styleRegistry.cssForPage(`${t1}${t2}`).sort();
+  assert.deepEqual(result, ['.a {}', '.b {}']);
 });
 
 test('the same url() referenced from two CSS files dedupes to one asset', async () => {
