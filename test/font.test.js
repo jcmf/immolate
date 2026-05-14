@@ -15,10 +15,14 @@ const stubTranscode = async (_bytes) => STUB_WOFF2;
 // Echo the requested glyph set into the output bytes so tests can assert what
 // the subsetter was handed (and so distinct glyph sets produce distinct bytes).
 const stubSubset = async (_bytes, text) => Buffer.from(`wOF2-subset[${text}]`);
+// The default test stub returns an empty source coverage so hedge no-ops on
+// stub bytes (real fontkit can't parse 'OTFRAW' / 'WOFF2RAW'). Hedge-specific
+// tests pass an explicit getCoverage that returns a known Set.
+const stubEmptyCoverage = () => new Set();
 
 function makeRegistry(
   files,
-  { transcode = stubTranscode, subset = stubSubset } = {},
+  { transcode = stubTranscode, subset = stubSubset, getCoverage = stubEmptyCoverage } = {},
 ) {
   const fs = makeFs(files);
   const assetRegistry = createAssetRegistry({ fs, outputDir: '/out' });
@@ -28,6 +32,7 @@ function makeRegistry(
     assetRegistry,
     transcode,
     subset,
+    getCoverage,
   });
   return { fs, assetRegistry, fontRegistry };
 }
@@ -506,7 +511,7 @@ test('concurrent transcodes of distinct TTFs each yield valid WOFF2 bytes', asyn
 
 // Helper: spin up a registry with fontSubset enabled, run a call, scan a
 // constructed `pages` array, return the substituted HTML and emitted files.
-function makeRegistryWithSubset(files, fontSubset) {
+function makeRegistryWithSubset(files, fontSubset, { getCoverage = stubEmptyCoverage } = {}) {
   const fs = makeFs(files);
   const assetRegistry = createAssetRegistry({ fs, outputDir: '/out' });
   const fontRegistry = createFontRegistry({
@@ -516,6 +521,7 @@ function makeRegistryWithSubset(files, fontSubset) {
     fontSubset,
     transcode: stubTranscode,
     subset: stubSubset,
+    getCoverage,
   });
   return { fs, assetRegistry, fontRegistry };
 }
@@ -842,6 +848,254 @@ test('mode:"css-static" — precision:"family" merges weights into one subset', 
   assert.equal(bytes, 'wOF2-subset[ ab]');
 });
 
+// ---- hedge / complement subsets ----
+
+test('hedge:"full" emits a complement face covering source-minus-primary', async () => {
+  // Source font covers ASCII a-f (97-102). Primary text "abc" → primary face
+  // gets {a,b,c}; complement face gets {d,e,f}. Two assets, both via subsetter.
+  const cov = new Set([97, 98, 99, 100, 101, 102]);
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    { mode: 'all-text', hedge: 'full' },
+    { getCoverage: () => cov },
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  const { html: token } = Font({ src: './f.otf', family: 'X' });
+  const pages = [{ outPath: '/out/index.html', html: '<p>abc</p>' }];
+  const substitute = await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const html = substitute(token);
+  // Two @font-face rules in the emitted style.
+  const matches = [...html.matchAll(/@font-face\{([^}]+)\}/g)];
+  assert.equal(matches.length, 2);
+  // Both unicode-ranges are present and disjoint.
+  assert.match(matches[0][1], /unicode-range:U\+61-63/); // primary a-c
+  assert.match(matches[1][1], /unicode-range:U\+64-66/); // complement d-f
+  // Two distinct asset files, one per glyph set.
+  const files = (await fs.promises.readdir('/out/_assets')).sort();
+  assert.equal(files.length, 2);
+  const bag = new Set(
+    await Promise.all(
+      files.map((f) => fs.promises.readFile(`/out/_assets/${f}`, 'utf8')),
+    ),
+  );
+  assert.ok(bag.has('wOF2-subset[abc]'));
+  assert.ok(bag.has('wOF2-subset[def]'));
+});
+
+test('hedge:"none" — no complement, no unicode-range on the primary face', async () => {
+  // Same coverage as above; hedge:'none' should produce a single face with
+  // no unicode-range descriptor (matching the pre-hedge HTML shape).
+  const cov = new Set([97, 98, 99, 100, 101, 102]);
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    { mode: 'all-text', hedge: 'none' },
+    { getCoverage: () => cov },
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  const { html: token } = Font({ src: './f.otf', family: 'X' });
+  const pages = [{ outPath: '/out/index.html', html: '<p>abc</p>' }];
+  const substitute = await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const html = substitute(token);
+  const matches = [...html.matchAll(/@font-face\{([^}]+)\}/g)];
+  assert.equal(matches.length, 1);
+  assert.doesNotMatch(matches[0][1], /unicode-range/);
+  const files = await fs.promises.readdir('/out/_assets');
+  assert.equal(files.length, 1);
+});
+
+test('hedge:"latin1" caps the complement to U+0000-U+00FF', async () => {
+  // Source font covers a few Latin-1 chars + some BMP-but-above (e.g. arrow).
+  const cov = new Set([97, 98, 99, 100, 0x2192, 0x2603]); // a, b, c, d, →, ☃
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    { mode: 'all-text', hedge: 'latin1' },
+    { getCoverage: () => cov },
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  const { html: token } = Font({ src: './f.otf', family: 'X' });
+  const pages = [{ outPath: '/out/index.html', html: '<p>ab</p>' }];
+  const substitute = await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const html = substitute(token);
+  const matches = [...html.matchAll(/@font-face\{([^}]+)\}/g)];
+  assert.equal(matches.length, 2);
+  // Complement should only contain the latin-1 chars (c, d), not the arrow.
+  assert.match(matches[1][1], /unicode-range:U\+63-64/);
+  const files = (await fs.promises.readdir('/out/_assets')).sort();
+  const bag = new Set(
+    await Promise.all(
+      files.map((f) => fs.promises.readFile(`/out/_assets/${f}`, 'utf8')),
+    ),
+  );
+  assert.ok(bag.has('wOF2-subset[ab]'));
+  assert.ok(bag.has('wOF2-subset[cd]'));
+});
+
+test('hedge: primary covers all source glyphs → no complement emitted', async () => {
+  const cov = new Set([97, 98, 99]);
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    { mode: 'all-text', hedge: 'full' },
+    { getCoverage: () => cov },
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  Font({ src: './f.otf', family: 'X' });
+  const pages = [{ outPath: '/out/index.html', html: '<p>abc</p>' }];
+  await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const files = await fs.promises.readdir('/out/_assets');
+  // primary covers everything → no complement → one asset.
+  assert.equal(files.length, 1);
+});
+
+test('hedge: user-supplied unicodeRange disables hedge for that call', async () => {
+  const cov = new Set([97, 98, 99, 100, 101, 102]);
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    { mode: 'all-text', hedge: 'full' },
+    { getCoverage: () => cov },
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  const { html: token } = Font({
+    src: './f.otf',
+    family: 'X',
+    unicodeRange: 'U+0061-0063',
+  });
+  const pages = [{ outPath: '/out/index.html', html: '<p>ab</p>' }];
+  const substitute = await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const html = substitute(token);
+  // Single face with the user-supplied unicode-range.
+  const matches = [...html.matchAll(/@font-face\{([^}]+)\}/g)];
+  assert.equal(matches.length, 1);
+  assert.match(matches[0][1], /unicode-range:U\+0061-0063/);
+});
+
+test('preloadHedge:"prefetch" emits a prefetch link for the complement', async () => {
+  const cov = new Set([97, 98, 99, 100]);
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    { mode: 'all-text', hedge: 'full', preloadHedge: 'prefetch' },
+    { getCoverage: () => cov },
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  const { html: token } = Font({ src: './f.otf', family: 'X', preload: true });
+  const pages = [{ outPath: '/out/index.html', html: '<p>ab</p>' }];
+  const substitute = await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const html = substitute(token);
+  // Primary preload + complement prefetch + style block.
+  assert.match(html, /<link rel="preload" as="font" type="font\/woff2" href="\/_assets\/[^"]+" crossorigin>/);
+  assert.match(html, /<link rel="prefetch" as="font" type="font\/woff2" href="\/_assets\/[^"]+" crossorigin>/);
+  assert.equal((html.match(/<link /g) ?? []).length, 2);
+});
+
+test('preloadHedge:"preload" emits a preload link for both faces', async () => {
+  const cov = new Set([97, 98, 99, 100]);
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    { mode: 'all-text', hedge: 'full', preloadHedge: 'preload' },
+    { getCoverage: () => cov },
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  const { html: token } = Font({ src: './f.otf', family: 'X', preload: true });
+  const pages = [{ outPath: '/out/index.html', html: '<p>ab</p>' }];
+  const substitute = await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const html = substitute(token);
+  // Two preloads.
+  const preloads = html.match(/<link rel="preload"/g) ?? [];
+  assert.equal(preloads.length, 2);
+});
+
+test('preloadHedge:false (default) — no link tag for the complement', async () => {
+  const cov = new Set([97, 98, 99, 100]);
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    { mode: 'all-text', hedge: 'full' },
+    { getCoverage: () => cov },
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  const { html: token } = Font({ src: './f.otf', family: 'X', preload: true });
+  const pages = [{ outPath: '/out/index.html', html: '<p>ab</p>' }];
+  const substitute = await fontRegistry.processAll(pages);
+  await assetRegistry.writeAll();
+  const html = substitute(token);
+  // Only one link (the primary preload).
+  assert.equal((html.match(/<link /g) ?? []).length, 1);
+});
+
+test('fontSubset:true → hedge defaults to "full"', async () => {
+  // The boolean form is "I want safe defaults" → hedge:'full' (never tofu).
+  const cov = new Set([97, 98, 99, 100, 101]);
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    true,
+    { getCoverage: () => cov },
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  Font({ src: './f.otf', family: 'X' });
+  const pages = [
+    { outPath: '/out/index.html', html: '<body style="font-family:X"><p>ab</p></body>' },
+  ];
+  await fontRegistry.processAll(pages, { cssForPage: () => [] });
+  await assetRegistry.writeAll();
+  const files = await fs.promises.readdir('/out/_assets');
+  // primary (a,b) + complement (c,d,e) → two files.
+  assert.equal(files.length, 2);
+});
+
+test('fontSubset:{mode:"css-static"} → hedge defaults to "none" (object form)', async () => {
+  const cov = new Set([97, 98, 99, 100, 101]);
+  const { fs, assetRegistry, fontRegistry } = makeRegistryWithSubset(
+    { '/in/f.otf': 'OTFRAW' },
+    { mode: 'css-static' }, // explicit object → conservative, hedge defaults to 'none'
+    { getCoverage: () => cov },
+  );
+  const Font = fontRegistry.forImporter('/in/page.mdx');
+  Font({ src: './f.otf', family: 'X' });
+  const pages = [
+    { outPath: '/out/index.html', html: '<body style="font-family:X"><p>ab</p></body>' },
+  ];
+  await fontRegistry.processAll(pages, { cssForPage: () => [] });
+  await assetRegistry.writeAll();
+  const files = await fs.promises.readdir('/out/_assets');
+  // No complement.
+  assert.equal(files.length, 1);
+});
+
+test('hedge: invalid value is rejected', () => {
+  const fs = makeFs({});
+  const assetRegistry = createAssetRegistry({ fs, outputDir: '/out' });
+  assert.throws(
+    () =>
+      createFontRegistry({
+        fs,
+        topDir: '/in',
+        assetRegistry,
+        fontSubset: { mode: 'all-text', hedge: 'aggressive' },
+      }),
+    /fontSubset\.hedge must be one of none, latin1, full/,
+  );
+});
+
+test('preloadHedge: invalid value is rejected', () => {
+  const fs = makeFs({});
+  const assetRegistry = createAssetRegistry({ fs, outputDir: '/out' });
+  assert.throws(
+    () =>
+      createFontRegistry({
+        fs,
+        topDir: '/in',
+        assetRegistry,
+        fontSubset: { mode: 'all-text', preloadHedge: 'fast' },
+      }),
+    /fontSubset\.preloadHedge must be false, 'prefetch', or 'preload'/,
+  );
+});
+
 test('mode:"css-static" — invalid precision is rejected', () => {
   const fs = makeFs({});
   const assetRegistry = createAssetRegistry({ fs, outputDir: '/out' });
@@ -883,6 +1137,44 @@ test('fontSubset:{mode:"all-text"} end-to-end through build() with the real subs
     written.length < FIXTURE_TTF.length / 2,
     `subset not small enough: ${written.length} vs ${FIXTURE_TTF.length}`,
   );
+});
+
+test('hedge:"full" end-to-end with real fontkit — emits two faces and disjoint ranges', async () => {
+  const fs = makeFs({});
+  fs.mkdirSync('/in', { recursive: true });
+  fs.writeFileSync('/in/font.ttf', FIXTURE_TTF);
+  fs.writeFileSync('/in/site.css', 'body{font-family:Inter}');
+  fs.writeFileSync(
+    '/in/index.md',
+    "import {Font} from 'xtatic:font';\n" +
+      "import {Style} from 'xtatic:style';\n\n" +
+      '<Font src="./font.ttf" family="Inter" />\n' +
+      '<Style src="./site.css" />\n\n' +
+      'Hi\n',
+  );
+  await build({
+    inputDir: '/in',
+    outputDir: '/out',
+    fs,
+    fontSubset: true, // hedge defaults to 'full'
+  });
+  const html = fs.readFileSync('/out/index.html', 'utf8');
+  // Two @font-face blocks, both pointing at /_assets/<hash>.woff2 with
+  // disjoint unicode-range descriptors.
+  const faces = [...html.matchAll(/@font-face\{([^}]+)\}/g)];
+  assert.equal(faces.length, 2);
+  assert.match(faces[0][1], /unicode-range:U\+/);
+  assert.match(faces[1][1], /unicode-range:U\+/);
+  // Two distinct asset URLs.
+  const urls = new Set(
+    [...html.matchAll(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/g)].map((m) => m[1]),
+  );
+  assert.equal(urls.size, 2);
+  // Each asset is a valid WOFF2 file.
+  for (const u of urls) {
+    const bytes = fs.readFileSync(`/out${u}`);
+    assert.equal(bytes.slice(0, 4).toString('ascii'), 'wOF2');
+  }
 });
 
 test('fontSubset:true (default = css-static) end-to-end with the real subsetter', async () => {

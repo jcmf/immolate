@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { create as fontkitCreate } from 'fontkit';
 import { transcodeToWoff2 } from './font-transcode.js';
 import { subsetToWoff2 } from './font-subset.js';
 import { computeCodePointsByFace, faceKey } from './font-cascade.js';
@@ -18,7 +19,38 @@ const VALID_DISPLAY = new Set([
 const VALID_STYLE = new Set(['normal', 'italic', 'oblique']);
 const VALID_SUBSET_MODES = new Set(['all-text', 'css-static']);
 const VALID_PRECISIONS = new Set(['family', 'face']);
+const VALID_HEDGES = new Set(['none', 'latin1', 'full']);
+const VALID_PRELOAD_HEDGES = new Set([false, 'prefetch', 'preload']);
 const MIME = { woff: 'font/woff', woff2: 'font/woff2' };
+
+// Run-length encode a sorted array of code points into a CSS `unicode-range`
+// descriptor: contiguous runs collapse to `U+lo-hi`, singletons to `U+xx`.
+function encodeUnicodeRange(sortedCps) {
+  if (!sortedCps || sortedCps.length === 0) return null;
+  const parts = [];
+  let lo = sortedCps[0];
+  let hi = lo;
+  for (let i = 1; i < sortedCps.length; i++) {
+    const cp = sortedCps[i];
+    if (cp === hi + 1) {
+      hi = cp;
+    } else {
+      parts.push(
+        lo === hi
+          ? `U+${lo.toString(16).toUpperCase()}`
+          : `U+${lo.toString(16).toUpperCase()}-${hi.toString(16).toUpperCase()}`,
+      );
+      lo = cp;
+      hi = cp;
+    }
+  }
+  parts.push(
+    lo === hi
+      ? `U+${lo.toString(16).toUpperCase()}`
+      : `U+${lo.toString(16).toUpperCase()}-${hi.toString(16).toUpperCase()}`,
+  );
+  return parts.join(',');
+}
 
 function escCssString(s) {
   return String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
@@ -57,7 +89,9 @@ function extractPageText(html) {
 
 function normalizeFontSubset(input) {
   if (input == null || input === false) return null;
-  if (input === true) return { mode: 'css-static', precision: 'face' };
+  if (input === true) {
+    return { mode: 'css-static', precision: 'face', hedge: 'full', preloadHedge: false };
+  }
   if (typeof input !== 'object' || Array.isArray(input)) {
     throw new Error(
       `fontSubset must be true, false, or an options object; got ${JSON.stringify(input)}.`,
@@ -75,7 +109,28 @@ function normalizeFontSubset(input) {
       `fontSubset.precision must be one of ${[...VALID_PRECISIONS].join(', ')}; got ${JSON.stringify(precision)}.`,
     );
   }
-  return { mode, precision };
+  // Default hedge differs from fontSubset:true vs an explicit object: the
+  // boolean form is "I want the safe defaults"; the object form is "I'm
+  // configuring deliberately." Boolean form gets hedge:'full' (never tofu),
+  // object form defaults to 'none' unless the user sets it.
+  const hedge = input.hedge ?? 'none';
+  if (!VALID_HEDGES.has(hedge)) {
+    throw new Error(
+      `fontSubset.hedge must be one of ${[...VALID_HEDGES].join(', ')}; got ${JSON.stringify(hedge)}.`,
+    );
+  }
+  const preloadHedge = input.preloadHedge ?? false;
+  if (!VALID_PRELOAD_HEDGES.has(preloadHedge)) {
+    throw new Error(
+      `fontSubset.preloadHedge must be false, 'prefetch', or 'preload'; got ${JSON.stringify(preloadHedge)}.`,
+    );
+  }
+  return { mode, precision, hedge, preloadHedge };
+}
+
+function defaultGetCoverage(bytes) {
+  const font = fontkitCreate(bytes);
+  return new Set(font.characterSet);
 }
 
 export function createFontRegistry({
@@ -88,9 +143,13 @@ export function createFontRegistry({
   transcode = (bytes) => transcodeToWoff2(bytes, { autoInstall, topDir, install }),
   subset = (bytes, text) =>
     subsetToWoff2(bytes, text, { autoInstall, topDir, install }),
+  getCoverage = defaultGetCoverage,
 }) {
   const subsetConfig = normalizeFontSubset(fontSubset);
   const calls = [];
+  // Per-build cache: absSrc → Set<codepoint> of the source font's coverage.
+  // Populated lazily in processAll only for sources that need hedge work.
+  const sourceCoverageCache = new Map();
 
   function displayPath(absPath) {
     const rel = path.posix.relative(topDir, absPath);
@@ -293,34 +352,126 @@ export function createFontRegistry({
     };
   }
 
+  // Lazy-load source font coverage by absSrc, reusing a cache so repeat calls
+  // are free. Wraps the injectable `getCoverage` for fontkit-or-stub use.
+  async function loadSourceCoverage(call) {
+    if (sourceCoverageCache.has(call.absSrc)) {
+      return sourceCoverageCache.get(call.absSrc);
+    }
+    try {
+      const bytes = await fs.promises.readFile(call.absSrc);
+      const cov = getCoverage(bytes);
+      sourceCoverageCache.set(call.absSrc, cov);
+      return cov;
+    } catch (e) {
+      if (e.code === 'ENOENT') {
+        // Let runJob surface the canonical "source not found" error; just
+        // mark coverage unavailable so hedge silently degrades to no-op.
+        sourceCoverageCache.set(call.absSrc, null);
+        return null;
+      }
+      throw attachContext(e, call.context);
+    }
+  }
+
+  // Compute the complement glyph set for one call's primary subset, capped to
+  // the hedge level. Returns null if no complement should be emitted (no
+  // primary, hedge:'none', empty result, or user-supplied unicodeRange).
+  async function computeComplement(call, primaryCpSet) {
+    if (!subsetConfig || subsetConfig.hedge === 'none') return null;
+    if (call.unicodeRange !== undefined) return null; // user is being explicit
+    if (!primaryCpSet || primaryCpSet.size === 0) return null;
+    const coverage = await loadSourceCoverage(call);
+    if (!coverage) return null;
+    const out = new Set();
+    for (const cp of coverage) {
+      if (primaryCpSet.has(cp)) continue;
+      if (subsetConfig.hedge === 'latin1' && cp > 0xff) continue;
+      out.add(cp);
+    }
+    return out.size === 0 ? null : out;
+  }
+
   async function processAll(pages = [], opts) {
     const autoSubsetFor = resolveAutoSubset(pages, opts);
 
-    // Build jobs from calls (deferred from render-time so auto-subset text can
-    // be resolved from `pages` first). Explicit `text=` wins over auto-subset.
+    // Build jobs from calls. Each call may produce up to two jobs (primary
+    // glyph set + complement). Job dedup by `${absSrc}\0${subsetText}` so two
+    // calls with the same glyph set share an asset. callJobs[i] records the
+    // job keys + unicode-ranges for this call's primary and complement.
     const jobs = new Map();
-    const callJobKey = new Array(calls.length);
+    const callJobs = new Array(calls.length);
+
+    function ensureJob(absSrc, ext, subsetText, importerDisplay, context) {
+      const key =
+        subsetText === undefined ? absSrc : `${absSrc}\0${subsetText}`;
+      if (!jobs.has(key)) {
+        jobs.set(key, { absSrc, ext, subsetText, importerDisplay, context });
+      }
+      return key;
+    }
+
     for (let i = 0; i < calls.length; i++) {
       const call = calls[i];
-      let subsetText;
+
+      let primarySubsetText;
       if (call.text !== undefined) {
-        subsetText = canonicalSubsetText(call.text);
+        primarySubsetText = canonicalSubsetText(call.text);
       } else if (call.autoSubset) {
         const auto = autoSubsetFor(call);
-        if (auto !== undefined) subsetText = auto;
+        if (auto !== undefined) primarySubsetText = auto;
       }
-      const jobKey =
-        subsetText === undefined ? call.absSrc : `${call.absSrc}\0${subsetText}`;
-      if (!jobs.has(jobKey)) {
-        jobs.set(jobKey, {
-          absSrc: call.absSrc,
-          ext: call.ext,
-          subsetText,
-          importerDisplay: call.importerDisplay,
-          context: call.context,
-        });
+
+      const primaryCpSet =
+        primarySubsetText === undefined
+          ? null
+          : new Set([...primarySubsetText].map((c) => c.codePointAt(0)));
+
+      // Hedge: compute complement only when primary exists and is a real
+      // subset (not the whole transcoded/passthrough font).
+      const complementCpSet = await computeComplement(call, primaryCpSet);
+
+      // If hedge applies and the complement is non-empty, both faces get
+      // a unicode-range to partition the code-point space. Otherwise the
+      // primary keeps the user's optional unicodeRange (or none) verbatim.
+      let primaryRange = null;
+      let complementRange = null;
+      if (complementCpSet) {
+        primaryRange = encodeUnicodeRange(
+          [...primaryCpSet].sort((a, b) => a - b),
+        );
+        complementRange = encodeUnicodeRange(
+          [...complementCpSet].sort((a, b) => a - b),
+        );
       }
-      callJobKey[i] = jobKey;
+
+      const primaryJobKey = ensureJob(
+        call.absSrc,
+        call.ext,
+        primarySubsetText,
+        call.importerDisplay,
+        call.context,
+      );
+      let complementJobKey = null;
+      if (complementCpSet) {
+        const complementText = String.fromCodePoint(
+          ...[...complementCpSet].sort((a, b) => a - b),
+        );
+        complementJobKey = ensureJob(
+          call.absSrc,
+          call.ext,
+          complementText,
+          call.importerDisplay,
+          call.context,
+        );
+      }
+
+      callJobs[i] = {
+        primaryJobKey,
+        primaryRange,
+        complementJobKey,
+        complementRange,
+      };
     }
 
     const jobResults = new Map();
@@ -330,23 +481,50 @@ export function createFontRegistry({
       }),
     );
 
-    const tokenToHtml = new Map();
-    for (let i = 0; i < calls.length; i++) {
-      const call = calls[i];
-      const { url, ext } = jobResults.get(callJobKey[i]);
+    const preloadHedgeKind = subsetConfig?.preloadHedge ?? false;
+
+    function renderFace(call, url, ext, range) {
       const decls = [`font-family:"${escCssString(call.family)}"`];
       if (call.style !== undefined) decls.push(`font-style:${call.style}`);
       if (call.weight !== undefined) decls.push(`font-weight:${call.weight}`);
       if (call.display !== undefined)
         decls.push(`font-display:${call.display}`);
-      if (call.unicodeRange !== undefined)
-        decls.push(`unicode-range:${call.unicodeRange}`);
+      // User's explicit unicodeRange wins over a hedge-computed range — that
+      // case is gated above (hedge skipped when call.unicodeRange is set).
+      const rangeToUse = call.unicodeRange ?? range;
+      if (rangeToUse) decls.push(`unicode-range:${rangeToUse}`);
       decls.push(`src:url("${url}") format("${ext}")`);
-      const fontFace = `<style>@font-face{${decls.join(';')}}</style>`;
-      const preloadHtml = call.preload
-        ? `<link rel="preload" as="font" type="${MIME[ext]}" href="${url}" crossorigin>`
-        : '';
-      tokenToHtml.set(call.token, preloadHtml + fontFace);
+      return `@font-face{${decls.join(';')}}`;
+    }
+
+    const tokenToHtml = new Map();
+    for (let i = 0; i < calls.length; i++) {
+      const call = calls[i];
+      const { primaryJobKey, primaryRange, complementJobKey, complementRange } =
+        callJobs[i];
+      const primary = jobResults.get(primaryJobKey);
+      const complement = complementJobKey ? jobResults.get(complementJobKey) : null;
+
+      const faces = [renderFace(call, primary.url, primary.ext, primaryRange)];
+      if (complement) {
+        faces.push(
+          renderFace(call, complement.url, complement.ext, complementRange),
+        );
+      }
+      const styleBlock = `<style>${faces.join('')}</style>`;
+
+      const preloadHtml = [];
+      if (call.preload) {
+        preloadHtml.push(
+          `<link rel="preload" as="font" type="${MIME[primary.ext]}" href="${primary.url}" crossorigin>`,
+        );
+      }
+      if (complement && preloadHedgeKind) {
+        preloadHtml.push(
+          `<link rel="${preloadHedgeKind}" as="font" type="${MIME[complement.ext]}" href="${complement.url}" crossorigin>`,
+        );
+      }
+      tokenToHtml.set(call.token, preloadHtml.join('') + styleBlock);
     }
 
     return function substitute(html) {

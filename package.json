@@ -42,6 +42,7 @@
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-mdx": "^3.7.0",
     "fflate": "^0.8.2",
+    "fontkit": "^2.0.4",
     "parse5": "^8.0.1",
     "remark-frontmatter": "^5.0.0",
     "remark-mdx-frontmatter": "^5.0.0",
