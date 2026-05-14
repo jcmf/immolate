@@ -36,11 +36,13 @@
   },
   "dependencies": {
     "@mdx-js/mdx": "^3.1.0",
+    "css-tree": "^3.2.1",
     "eslint": "^9.39.4",
     "eslint-mdx": "^3.7.0",
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-mdx": "^3.7.0",
     "fflate": "^0.8.2",
+    "parse5": "^8.0.1",
     "remark-frontmatter": "^5.0.0",
     "remark-mdx-frontmatter": "^5.0.0",
     "remark-smartypants": "^3.0.2",

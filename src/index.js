@@ -200,7 +200,12 @@ async function buildImpl({
   // engine (commit 3+). Substitute composition is order-independent because
   // token namespaces are disjoint.
   const assetSubstitute = await plainAssetRegistry.processAll(pages);
-  const fontSubstitute = await fontRegistry.processAll(pages);
+  const fontSubstitute = await fontRegistry.processAll(pages, {
+    cssForPage: (html) => [
+      ...styleRegistry.cssForPage(html),
+      ...plainAssetRegistry.cssForPage(html),
+    ],
+  });
   await assetRegistry.writeAll();
   await plainAssetRegistry.writeAll();
   const substitute = (html, outPath) =>

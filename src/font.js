@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { transcodeToWoff2 } from './font-transcode.js';
 import { subsetToWoff2 } from './font-subset.js';
+import { computeCodePointsByFace, faceKey } from './font-cascade.js';
 import { attachContext, currentStack } from './render-context.js';
 
 const TOKEN_RE = /__XTATIC_FONT_[a-f0-9]+__/g;
@@ -15,7 +16,8 @@ const VALID_DISPLAY = new Set([
   'optional',
 ]);
 const VALID_STYLE = new Set(['normal', 'italic', 'oblique']);
-const VALID_SUBSET_MODES = new Set(['all-text']);
+const VALID_SUBSET_MODES = new Set(['all-text', 'css-static']);
+const VALID_PRECISIONS = new Set(['family', 'face']);
 const MIME = { woff: 'font/woff', woff2: 'font/woff2' };
 
 function escCssString(s) {
@@ -55,19 +57,25 @@ function extractPageText(html) {
 
 function normalizeFontSubset(input) {
   if (input == null || input === false) return null;
-  if (input === true) return { mode: 'all-text' };
+  if (input === true) return { mode: 'css-static', precision: 'face' };
   if (typeof input !== 'object' || Array.isArray(input)) {
     throw new Error(
       `fontSubset must be true, false, or an options object; got ${JSON.stringify(input)}.`,
     );
   }
-  const mode = input.mode ?? 'all-text';
+  const mode = input.mode ?? 'css-static';
   if (!VALID_SUBSET_MODES.has(mode)) {
     throw new Error(
       `fontSubset.mode must be one of ${[...VALID_SUBSET_MODES].join(', ')}; got ${JSON.stringify(mode)}.`,
     );
   }
-  return { mode };
+  const precision = input.precision ?? 'face';
+  if (mode === 'css-static' && !VALID_PRECISIONS.has(precision)) {
+    throw new Error(
+      `fontSubset.precision must be one of ${[...VALID_PRECISIONS].join(', ')}; got ${JSON.stringify(precision)}.`,
+    );
+  }
+  return { mode, precision };
 }
 
 export function createFontRegistry({
@@ -228,24 +236,65 @@ export function createFontRegistry({
     }
   }
 
-  // Compute the canonical auto-subset text once per build, shared by every
-  // call that opts into auto-subset (scope:'site' is currently the only scope).
-  // The mode defaults to 'all-text' when no global config is set, so per-call
-  // `subset={true}` works without a global flag.
-  function computeAutoSubsetText(pages) {
-    if (!calls.some((c) => c.autoSubset)) return undefined;
-    const mode = subsetConfig?.mode ?? 'all-text';
+  // Convert a Set of code points (numbers) to a canonical sorted string for
+  // the subsetter and for job dedup keys.
+  function codePointSetToCanonical(set) {
+    const sorted = [...set].sort((a, b) => a - b);
+    return String.fromCodePoint(...sorted);
+  }
+
+  // Resolve each opted-in call's subset text. mode:'all-text' yields one
+  // shared union string; mode:'css-static' yields a per-face glyph set via
+  // the cascade engine, which we then look up per-call by faceKey. Returns
+  // undefined to signal "no auto-subset for this call".
+  function resolveAutoSubset(pages, opts) {
+    if (!calls.some((c) => c.autoSubset)) {
+      return () => undefined;
+    }
+    const mode = subsetConfig?.mode ?? 'css-static';
+    const precision = subsetConfig?.precision ?? 'face';
+
     if (mode === 'all-text') {
       let acc = '';
       for (const p of pages) acc += extractPageText(p.html);
       const canon = canonicalSubsetText(acc);
-      return canon.length === 0 ? undefined : canon;
+      if (canon.length === 0) return () => undefined;
+      return () => canon;
     }
-    return undefined;
+
+    // css-static
+    const getCssForPage = opts?.cssForPage ?? (() => []);
+    const registeredFaces = calls.map((c) => ({
+      family: c.family,
+      weight: c.weight ?? 400,
+      style: c.style ?? 'normal',
+      stretch: 'normal',
+      unicodeRange: c.unicodeRange,
+    }));
+    const byFace = computeCodePointsByFace({
+      pages,
+      getCssForPage,
+      registeredFaces,
+      precision,
+    });
+    return (call) => {
+      const key = faceKey(
+        {
+          family: call.family,
+          weight: call.weight ?? 400,
+          style: call.style ?? 'normal',
+          unicodeRange: call.unicodeRange,
+        },
+        precision,
+      );
+      const set = byFace.get(key);
+      if (!set || set.size === 0) return undefined;
+      return codePointSetToCanonical(set);
+    };
   }
 
-  async function processAll(pages = []) {
-    const autoSubsetText = computeAutoSubsetText(pages);
+  async function processAll(pages = [], opts) {
+    const autoSubsetFor = resolveAutoSubset(pages, opts);
 
     // Build jobs from calls (deferred from render-time so auto-subset text can
     // be resolved from `pages` first). Explicit `text=` wins over auto-subset.
@@ -256,8 +305,9 @@ export function createFontRegistry({
       let subsetText;
       if (call.text !== undefined) {
         subsetText = canonicalSubsetText(call.text);
-      } else if (call.autoSubset && autoSubsetText !== undefined) {
-        subsetText = autoSubsetText;
+      } else if (call.autoSubset) {
+        const auto = autoSubsetFor(call);
+        if (auto !== undefined) subsetText = auto;
       }
       const jobKey =
         subsetText === undefined ? call.absSrc : `${call.absSrc}\0${subsetText}`;
