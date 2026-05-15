@@ -530,3 +530,86 @@ test('outputDir of "/" is rejected', async () => {
     /outputDir must be a non-root directory path/,
   );
 });
+
+test('outputPath frontmatter redirects a page to a custom file', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# r\n',
+    '/in/feed.mdx':
+      '---\noutputPath: /feed.xml\nlayout: null\n---\n\n<rss>hi</rss>\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const xml = await fs.promises.readFile('/out/feed.xml', 'utf8');
+  assert.match(xml, /<rss>hi<\/rss>/);
+  await assert.rejects(() =>
+    fs.promises.readFile('/out/feed/index.html', 'utf8'),
+  );
+});
+
+test('outputPath as a named export also works', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# r\n',
+    '/in/feed.mdx':
+      "export const outputPath = '/feed.xml';\nexport const layout = null;\n\n<rss/>\n",
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const xml = await fs.promises.readFile('/out/feed.xml', 'utf8');
+  assert.match(xml, /<rss>/);
+});
+
+test('outputPath errors when two pages target the same path', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# r\n',
+    '/in/a.mdx': '---\noutputPath: /feed.xml\nlayout: null\n---\na\n',
+    '/in/b.mdx': '---\noutputPath: /feed.xml\nlayout: null\n---\nb\n',
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/in', outputDir: '/out', fs }),
+    /Two pages write to the same output path "\/out\/feed\.xml"/,
+  );
+});
+
+test('outputPath errors when it collides with a default path', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# r\n',
+    '/in/foo.mdx': '# F\n',
+    '/in/bar.mdx': '---\noutputPath: /foo/index.html\nlayout: null\n---\nb\n',
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/in', outputDir: '/out', fs }),
+    /Two pages write to the same output path "\/out\/foo\/index\.html"/,
+  );
+});
+
+test('outputPath rejects a relative value', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# r\n',
+    '/in/feed.mdx': '---\noutputPath: feed.xml\nlayout: null\n---\n',
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/in', outputDir: '/out', fs }),
+    /Invalid outputPath "feed\.xml".*must be an absolute path starting with "\/"/s,
+  );
+});
+
+test('outputPath rejects ".." segments', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# r\n',
+    '/in/feed.mdx':
+      '---\noutputPath: /../escape.xml\nlayout: null\n---\n',
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/in', outputDir: '/out', fs }),
+    /Invalid outputPath ".*"\s*\(set on page "feed"\): must not contain "\.\." segments\./s,
+  );
+});
+
+test('outputPath rejects a trailing slash (must name a file)', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# r\n',
+    '/in/feed.mdx': '---\noutputPath: /feed/\nlayout: null\n---\n',
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/in', outputDir: '/out', fs }),
+    /Invalid outputPath "\/feed\/".*naming a file/s,
+  );
+});

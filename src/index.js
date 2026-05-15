@@ -32,8 +32,40 @@ async function walkMdx(fs, root) {
   return results;
 }
 
-function renderTree(mm, segments, outputDir, pages) {
+function computeOutPath(mm, segments, outputDir, pageLabel) {
+  if (mm.outputPath === undefined) {
+    return [outputDir, ...segments, 'index.html'].join('/');
+  }
+  const op = mm.outputPath;
+  const where = ` (set on page "${pageLabel}")`;
+  if (typeof op !== 'string') {
+    throw new Error(
+      `outputPath${where} must be a string (got ${typeof op}).`,
+    );
+  }
+  if (!op.startsWith('/') || op === '/' || op.endsWith('/')) {
+    throw new Error(
+      `Invalid outputPath "${op}"${where}: must be an absolute path starting with "/" and naming a file (not a directory).`,
+    );
+  }
+  if (op.split('/').includes('..')) {
+    throw new Error(
+      `Invalid outputPath "${op}"${where}: must not contain ".." segments.`,
+    );
+  }
+  return path.posix.join(outputDir, op);
+}
+
+function renderTree(mm, segments, outputDir, pages, seen) {
   const page = segments.length ? segments.join('/') : '/';
+  const outPath = computeOutPath(mm, segments, outputDir, page);
+  const prior = seen.get(outPath);
+  if (prior !== undefined) {
+    throw new Error(
+      `Two pages write to the same output path "${outPath}": "${prior}" and "${page}".`,
+    );
+  }
+  seen.set(outPath, page);
   const { html } = withFrame(
     { kind: 'page', page, file: mm.__xtatic_path ?? null },
     () => {
@@ -44,10 +76,9 @@ function renderTree(mm, segments, outputDir, pages) {
       }
     },
   );
-  const outPath = [outputDir, ...segments, 'index.html'].join('/');
   pages.push({ outPath, html });
   for (const child of mm.childPages) {
-    renderTree(child, [...segments, child.name], outputDir, pages);
+    renderTree(child, [...segments, child.name], outputDir, pages, seen);
   }
 }
 
@@ -191,7 +222,7 @@ async function buildImpl({
     });
   }
   const pages = [];
-  renderTree(root, [], outputDir, pages);
+  renderTree(root, [], outputDir, pages, new Map());
   const imageSubstitute = await imageRegistry.processAll();
   const styleSubstitute = await styleRegistry.processAll();
   // Plain-asset runs before font so the font registry can ask
