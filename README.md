@@ -238,7 +238,9 @@ import {Font} from 'xtatic:font';
 
 `.ttf` and `.otf` sources are transcoded to WOFF2 at build time via [wawoff2](https://github.com/fontello/wawoff2.js); `.woff` and `.woff2` sources are emitted verbatim. `wawoff2` is an optional peer dep — install it with `npm install wawoff2` the first time you use a `.ttf`/`.otf` source.
 
-**Subsetting.** Pass `text="…"` and the font is reduced to just the glyphs needed to render those characters before being emitted (always as WOFF2, whatever the input format). This is aimed at the small-fixed-text case — a logotype, a heading face, an icon set — where shipping a full Unicode face would be wasteful; a few-glyph subset of a typical text font is commonly a 10–100× size reduction. Subsetting is done via [subset-font](https://github.com/papandreou/subset-font) (HarfBuzz), an optional peer dep — `npm install subset-font` the first time you use `text=`. Two `<Font src>`s pointing at the same file with the same set of characters (order and duplicates don't matter) dedupe to one asset; different character sets, or a subsetted vs. non-subsetted reference, are separate assets.
+**Subsetting.** Pass `text="…"` and the font is reduced to just the glyphs needed to render those characters before being emitted (always as WOFF2, whatever the input format). This is aimed at the small-fixed-text case — a logotype, a heading face, an icon set — where shipping a full Unicode face would be wasteful; a few-glyph subset of a typical text font is commonly a 10–100× size reduction. Subsetting is done via [subset-font](https://github.com/papandreou/subset-font) (HarfBuzz), an optional peer dep — `npm install subset-font` the first time you use `text=` (or [auto-subsetting](#auto-subsetting), below). Two `<Font src>`s pointing at the same file with the same set of characters (order and duplicates don't matter) dedupe to one asset; different character sets, or a subsetted vs. non-subsetted reference, are separate assets.
+
+For the common case where the glyphs you need aren't a fixed string but "whatever my pages actually render," skip `text=` and turn on [auto-subsetting](#auto-subsetting) — xtatic figures the set out from the rendered HTML and the CSS reaching each page, then ships a tight subset (and optionally a lazy-loaded complement so anything missed never tofus).
 
 **Props:**
 
@@ -248,7 +250,8 @@ import {Font} from 'xtatic:font';
 - `style` — `"normal" | "italic" | "oblique"`. Omitted when absent.
 - `display` — `"auto" | "block" | "swap" | "fallback" | "optional"`. Omitted when absent (browser default = `auto`; `<Font>` does not impose `swap`).
 - `unicodeRange` — string passed through to `unicode-range:` verbatim.
-- `text` — when set (a non-empty string), subset the font to the characters in this string (see above). Output is WOFF2 regardless of source format.
+- `text` — when set (a non-empty string), subset the font to the characters in this string (see above). Output is WOFF2 regardless of source format. Always wins over auto-subsetting on the same call.
+- `subset` — boolean. Per-call opt-in/out for [auto-subsetting](#auto-subsetting). `subset={true}` opts this one font in even without the global flag; `subset={false}` opts it out when the global flag is on. Has no effect if `text=` is also set.
 - `preload` — boolean (default `false`). When set, a `<link rel="preload" as="font" type="font/woff2" href="…" crossorigin>` is emitted just before the `<style>` block.
 
 Identical `src` files dedupe to a single asset across the whole site, regardless of how many `<Font>` calls reference them (modulo `text` — see above). Output URLs are absolute (`/_assets/…`); the site is expected to be served from the root.
@@ -256,6 +259,41 @@ Identical `src` files dedupe to a single asset across the whole site, regardless
 `<Font>` rejects unknown props (no silent pass-through) — if you need to customize the emitted `<style>` or `<link>` further, write the markup by hand.
 
 **Note on `<Style>` interaction:** writing your own `@font-face { src: url('./x.ttf') }` inside a `<Style>`-loaded CSS file no longer auto-transcodes the TTF to WOFF2 — the CSS path emits the file as-is now. Use `<Font>` for the transcode behavior.
+
+### Auto-subsetting
+
+Set `xtatic.fontSubset` in `package.json` and every `<Font>` in the build is reduced to just the glyphs that actually appear on a page using that face — no `text=` needed. Per-page text is computed from the rendered HTML; for `mode: 'css-static'` (the default) the CSS reaching each page is parsed too, so the cascade decides which `@font-face` each text run resolves to.
+
+The simplest form turns it on with safe defaults:
+
+```json
+{
+  "xtatic": {
+    "fontSubset": true
+  }
+}
+```
+
+Equivalent to `{ "mode": "css-static", "precision": "face", "scope": "site", "hedge": "full", "preloadHedge": false }`. Per-call `<Font subset={false}>` opts a single font out; `<Font subset={true}>` opts a single font in when the global flag isn't set.
+
+Pass an object instead for explicit control over the five knobs:
+
+| Key | Values | What it does |
+| --- | --- | --- |
+| `mode` | `'css-static'` (default), `'all-text'` | `'css-static'` parses the CSS that reaches each page and attributes glyphs by the cascade. `'all-text'` skips CSS and just unions the rendered text — every font gets the same glyph set. Cheaper, no parse5/css-tree work, over-includes a touch but never under-includes for literal text. |
+| `precision` | `'face'` (default), `'family'` | Only meaningful in `css-static`. `'face'` keys glyph sets by `(family, weight, style)` so regular and bold get distinct subsets. `'family'` collapses all weights/styles of one family into one subset (fewer assets, slightly larger each). |
+| `scope` | `'site'` (default), `'page'` | `'site'` ships one subset per face for the whole build — fewer files, cross-page HTTP-cache reuse. `'page'` issues one subset per `(face, page)` — minimal first-paint bytes per page, but the same `<Font>` call in a layout produces a different asset URL on each page it renders into. |
+| `hedge` | `'none'`, `'latin1'`, `'full'` | The hedge against missed glyphs. `'full'` emits a *second* `@font-face` per call carrying the rest of the source font's coverage with a disjoint `unicode-range`; the browser only fetches it on demand for any character outside the primary set. `'latin1'` caps the complement at U+00FF. `'none'` ships only the primary subset (under-include = silent tofu). The boolean `fontSubset: true` form defaults to `'full'`; the explicit-object form defaults to `'none'` (treat the explicit form as "I'm being deliberate"). |
+| `preloadHedge` | `false` (default), `'prefetch'`, `'preload'` | When the complement face is emitted (`hedge` ≠ `'none'`), optionally also emit a `<link>` for it. By default the complement is fetched lazily only when the browser actually hits an out-of-primary code point — zero perf cost on the common path. |
+
+Auto-subsetting needs three extra dependencies (all hard, already installed): [parse5](https://github.com/inikulin/parse5) for HTML, [css-tree](https://github.com/csstree/csstree) for CSS, and [fontkit](https://github.com/foliojs/fontkit) for source-font glyph enumeration. Subsetting itself still goes through `subset-font` (the optional peer dep above), so the first auto-subsetted build prompts for `npm install subset-font` unless you've enabled `autoInstall`.
+
+**Known gaps in v1:**
+
+- `::before` / `::after` `content:` is not extracted yet, so an icon font driven entirely by `content: "\f001"` won't have those code points attributed by the cascade. With `hedge: 'full'` the icons still ship in the complement subset (the failure mode is byte-bloat, not tofu); without hedge, set `text=` on the call to list them explicitly.
+- `font-weight: bolder` / `lighter` round to fixed steps rather than walking the spec's relative-table.
+- Pseudo-classes like `:hover`, `:focus`, `:nth-child(...)`, `:not(...)` evaluate as always-true so weight/style overrides applied only in those states still contribute glyphs (over-includes a touch, never under-includes).
+- A face that no rule attributes any glyphs to falls back to transcode-only (the whole font ships) rather than emitting a zero-glyph subset — keeps the failure mode safe.
 
 ## Auto-installing optional peer deps
 
@@ -292,6 +330,7 @@ The config is currently frozen — no user override knob yet; that's a planned f
 - Components must be synchronous.
 - Path handling assumes POSIX separators.
 - `.js` files cannot import `.md`/`.mdx` (Node has no loader for those).
+- Auto-subsetting (`<Font>`) doesn't see `::before`/`::after` `content:` glyphs; rely on `hedge: 'full'` (default for `fontSubset: true`) or set `text=` explicitly for icon fonts.
 
 ## Tests
 
