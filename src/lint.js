@@ -105,7 +105,53 @@ export async function runLint({ topDir, outputDir }) {
   if (errorCount === 0) return;
   const formatter = await eslint.loadFormatter('stylish');
   const output = await formatter.format(results);
-  const err = new Error(`Lint failed with ${errorCount} error${errorCount === 1 ? '' : 's'}:\n\n${output}`);
+  const frames = formatFatalFrames(results);
+  const err = new Error(`Lint failed with ${errorCount} error${errorCount === 1 ? '' : 's'}:\n\n${output}${frames}`);
   err.lintFailed = true;
   throw err;
+}
+
+function formatFatalFrames(results) {
+  const blocks = [];
+  for (const r of results) {
+    for (const m of r.messages) {
+      if (!m.fatal || !m.line) continue;
+      const source = r.source ?? safeRead(r.filePath);
+      if (!source) continue;
+      const frame = renderCodeFrame(source, m.line, m.column, m.endLine, m.endColumn);
+      if (!frame) continue;
+      blocks.push(`${r.filePath}:${m.line}:${m.column ?? 1}\n${frame}`);
+    }
+  }
+  return blocks.length === 0 ? '' : `\n${blocks.join('\n\n')}\n`;
+}
+
+function safeRead(filePath) {
+  try {
+    return fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+function renderCodeFrame(source, line, column, endLine, endColumn) {
+  const lines = source.split('\n');
+  if (line < 1 || line > lines.length) return '';
+  const first = Math.max(1, line - 2);
+  const last = Math.min(lines.length, line + 2);
+  const gutter = String(last).length;
+  const out = [];
+  for (let i = first; i <= last; i++) {
+    const marker = i === line ? '> ' : '  ';
+    const num = String(i).padStart(gutter);
+    out.push(`${marker}${num} | ${lines[i - 1]}`);
+    if (i === line && column) {
+      const caretCol = column - 1;
+      const caretLen = endLine === line && endColumn && endColumn > column
+        ? endColumn - column
+        : 1;
+      out.push(`  ${' '.repeat(gutter)} | ${' '.repeat(caretCol)}${'^'.repeat(caretLen)}`);
+    }
+  }
+  return out.join('\n');
 }

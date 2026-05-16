@@ -154,6 +154,18 @@ test('lint catches a typo in a .md file (parsed as MDX)', () => {
   assert.match(r.stderr, /"xtatic:style" has no export named "Stlye"/);
 });
 
+test('parse error includes a source code frame with a caret', () => {
+  const top = setupTopDir('parse-error-frame', {
+    'pages/feed.md':
+      '---\ntitle: Feed\n---\n\nexport outputPath = "/feed.xml"\n\n# Feed\n',
+  });
+  const r = runCli(top);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /Parsing error: Could not parse import\/exports with acorn/);
+  assert.match(r.stderr, /> 5 \| export outputPath = "\/feed\.xml"/);
+  assert.match(r.stderr, /^ {4}\| {8}\^$/m);
+});
+
 test('lint catches builtin misuse in a .jsx component', () => {
   const top = setupTopDir('jsx-builtin-misuse', {
     'pages/index.mdx':
