@@ -58,6 +58,7 @@ Each module is small and focused; read the source rather than relying on this ma
   - **real-fs tests** (`test/cli.test.js`, `test/imports-js.test.js`, `test/smoke.test.js`, `test/remark-plugins.test.js`) scratch under `./test-tmp/<file>/...`. Each file's top-level `before` wipes only its own subtree (test files run in parallel, so a file-wide wipe of `test-tmp/` will race other files' fixtures). `test-tmp/` is gitignored. Slugs must be unique per test in the file — Node caches `import()` by URL, so reusing a slug serves stale `.js` content.
   - The smoke test passes no fs injection, exercising the default `node:fs` code path end-to-end.
 - **After making a change and seeing the suite green, commit immediately — don't wait to be asked.** Don't batch unrelated changes; checkpoint often.
+- **Before committing a user-visible change, update `README.md`** — new builtins, new exports (e.g. `outputPath`), new `pkg.xtatic.*` options, new CLI flags, changes to the input→output mapping, or removed features. Internal refactors and test-only changes don't need a README touch. CLAUDE.md captures invariants for future-me; README is the user contract — both should land in the same commit as the code so a `git show` is self-contained.
 - ESM only — `package.json` has `"type": "module"`, all imports use explicit `.js` extensions.
 
 ## Known scope cuts (deliberate)

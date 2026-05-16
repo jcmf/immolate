@@ -51,6 +51,25 @@ Relative paths in config are resolved against `TOP_DIR`, not the working directo
 
 `INPUT_DIR/index.md` (or `.mdx`) is the root and writes to `OUTPUT_DIR/index.html`.
 
+A page can override its destination by exporting `outputPath` (frontmatter or a named `export`) — useful for `/feed.xml`, `/sitemap.xml`, `/robots.txt`, etc.:
+
+```mdx
+---
+outputPath: /feed.xml
+layout: null
+---
+import {html} from 'xtatic:builtins';
+
+{html('<?xml version="1.0"?>')}
+<rss version="2.0">
+  <channel>
+    {childPages.map((p) => <item><title>{p.title}</title></item>)}
+  </channel>
+</rss>
+```
+
+The value must be an absolute path (starting with `/`) naming a file. `name`, `childPages`, `date`, and `title` still derive from the source file's tree position — only the written file's location changes. Layouts still apply; set `layout: null` (or just have no `defaultLayout` in scope) to opt out of HTML wrapping, as RSS/XML output usually wants.
+
 ## Pages
 
 Markdown is rendered normally. JSX inside MDX is evaluated against xtatic's JSX runtime, which produces HTML strings directly — no React, no virtual DOM.
