@@ -334,7 +334,7 @@ When enabled, the first time a build needs a missing peer dep, xtatic shells out
 
 **What's checked:**
 
-- `import/no-unresolved` — flags imports of files that don't exist on disk.
+- `import/no-unresolved` — flags imports of files that don't exist on disk. Leading-`/` specs in `.md`/`.mdx`/`.jsx` are resolved against `TOP_DIR` (matching the build), so `import Card from '/components/card.mdx'` checks correctly rather than being mistaken for a filesystem-absolute path.
 - `import/named` — flags `import {Foo}` when `Foo` isn't actually exported.
 - `import/no-duplicates` — flags two `import` statements for the same module.
 - `xtatic/builtin-imports` — flags default imports, namespace imports, and unknown export names against `xtatic:builtins`/`xtatic:image`/`xtatic:style`/`xtatic:font`. Errors carry the suggested fix (e.g. *"`xtatic:style` has no default export. Use `import {Style} from 'xtatic:style'` instead."*).

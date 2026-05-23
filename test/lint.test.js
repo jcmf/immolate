@@ -122,6 +122,55 @@ test('idiomatic default import from .mdx is allowed', () => {
   assert.equal(r.status, 0, r.stderr);
 });
 
+test('a "/"-rooted import resolves against the project root (no false no-unresolved)', () => {
+  const top = setupTopDir('root-rooted-import', {
+    'pages/index.mdx':
+      "import Foo from '/components/Foo.md';\n\n# Index\n\n<Foo />\n",
+    'components/Foo.md': '# Foo\n',
+  });
+  const r = runCli(top);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test('a "/"-rooted import from a .jsx file resolves against the project root', () => {
+  const top = setupTopDir('root-rooted-import-jsx', {
+    'pages/index.mdx':
+      "import Hero from './hero.jsx';\n\n# r\n\n<Hero />\n",
+    'pages/hero.jsx':
+      "import Foo from '/components/Foo.md';\n" +
+      'export default function Hero() { return <Foo />; }\n',
+    'components/Foo.md': '# Foo\n',
+  });
+  const r = runCli(top);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test('a broken "/"-rooted import is still flagged by no-unresolved', () => {
+  const top = setupTopDir('root-rooted-missing', {
+    'pages/index.mdx':
+      "import Foo from '/components/Nope.md';\n\n# Index\n\n<Foo />\n",
+  });
+  const r = runCli(top);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /Lint failed/);
+  assert.match(r.stderr, /Unable to resolve path to module/);
+});
+
+test('a "/"-rooted import in a .js file is NOT remapped (it is filesystem-absolute)', () => {
+  // .js loads through Node's real import(), where "/foo" is a filesystem path —
+  // so lint must keep flagging it even when the same name exists under topDir.
+  const top = setupTopDir('root-rooted-js-not-remapped', {
+    'pages/index.mdx':
+      "import x from './util.js';\n\n# Index\n\n{x}\n",
+    'pages/util.js': "import Foo from '/lib/Foo.js';\nexport default Foo;\n",
+    'lib/Foo.js': 'export default "foo";\n',
+  });
+  const r = runCli(top);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /Lint failed/);
+  assert.match(r.stderr, /Unable to resolve path to module '\/lib\/Foo\.js'/);
+});
+
 test('lint failure exits 1 before any build output is written', () => {
   const top = setupTopDir('no-build-on-lint-fail', {
     'pages/index.mdx':

@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ESLint } from 'eslint';
 import importPlugin from 'eslint-plugin-import';
 import { flat as mdxFlat } from 'eslint-plugin-mdx';
@@ -11,11 +12,19 @@ import { color, colorEnabled, highlight } from './log.js';
 const SOURCE_EXT_RE = /\.(mdx?|jsx?)$/i;
 const XTATIC_IGNORE = BUILTIN_SPECS.map((s) => `^${s}$`);
 
+// Absolute path to the custom resolver (.cjs). eslint-module-utils looks up a
+// resolver by string name/path and require()s it, so we hand it a path and let
+// it thread topDir through the resolver's config (see eslint-resolver-xtatic.cjs).
+const XTATIC_RESOLVER = fileURLToPath(
+  new URL('./eslint-resolver-xtatic.cjs', import.meta.url),
+);
+
 const xtaticPlugin = {
   rules: { 'builtin-imports': xtaticBuiltinImports },
 };
 
-export function makeConfig() {
+export function makeConfig(topDir) {
+  const top = path.resolve(topDir ?? '.');
   const sharedRules = {
     'import/no-unresolved': ['error', { ignore: ['^xtatic:'] }],
     'import/named': 'error',
@@ -37,7 +46,10 @@ export function makeConfig() {
       },
       settings: {
         'import/resolver': {
-          node: { extensions: ['.js', '.jsx', '.mjs', '.cjs'] },
+          [XTATIC_RESOLVER]: {
+            topDir: top,
+            extensions: ['.js', '.jsx', '.mjs', '.cjs'],
+          },
         },
         'import/ignore': XTATIC_IGNORE,
       },
@@ -56,7 +68,10 @@ export function makeConfig() {
       },
       settings: {
         'import/resolver': {
-          node: { extensions: ['.js', '.jsx', '.mjs', '.cjs', '.md', '.mdx'] },
+          [XTATIC_RESOLVER]: {
+            topDir: top,
+            extensions: ['.js', '.jsx', '.mjs', '.cjs', '.md', '.mdx'],
+          },
         },
         'import/ignore': XTATIC_IGNORE,
       },
@@ -99,7 +114,7 @@ export async function runLint({ topDir, outputDir, codeFrameWidth = 120 }) {
   const eslint = new ESLint({
     cwd: path.resolve(topDir),
     overrideConfigFile: true,
-    overrideConfig: makeConfig(),
+    overrideConfig: makeConfig(topDir),
   });
   const results = await eslint.lintFiles(files);
   const errorCount = results.reduce((n, r) => n + r.errorCount, 0);
