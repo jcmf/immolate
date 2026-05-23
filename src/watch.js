@@ -5,7 +5,7 @@ import { runLint } from './lint.js';
 import { color, log, warn } from './log.js';
 
 export async function watch({ buildOptions, debounceMs = 100 }) {
-  const { topDir, outputDir } = buildOptions;
+  const { topDir, outputDir, codeFrameWidth } = buildOptions;
   const state = { error: null };
 
   let building = false;
@@ -30,7 +30,7 @@ export async function watch({ buildOptions, debounceMs = 100 }) {
     log(color('dim', trigger ? `${trigger} changed — building…` : 'building…'));
     const start = Date.now();
     try {
-      await runLint({ topDir, outputDir });
+      await runLint({ topDir, outputDir, codeFrameWidth });
       await build({ ...buildOptions, fs });
       state.error = null;
       log(color('green', `built in ${Date.now() - start}ms`));

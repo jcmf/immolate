@@ -185,6 +185,48 @@ test('with color on, the frame highlights the span inline and drops the caret ro
   assert.doesNotMatch(r.stderr, /\| *\^+\s*$/m);
 });
 
+const LONG_LINE = `export ${'a'.repeat(200)} = 1`;
+
+test('a long source line is windowed to codeFrameWidth with an ellipsis', () => {
+  const top = setupTopDir('window-long-line', {
+    'pages/index.md': `---\ntitle: T\n---\n\n${LONG_LINE}\n\n# T\n`,
+  });
+  const r = runCli(top, { NO_COLOR: '1' });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /Parsing error/);
+  // The displayed source line is clipped to the default 120 cols (+ the … mark),
+  // not the full 200-char line.
+  const srcLine = r.stderr.split('\n').find((l) => l.startsWith('> 5 |'));
+  assert.ok(srcLine, r.stderr);
+  const body = srcLine.slice(srcLine.indexOf('| ') + 2);
+  assert.ok(body.includes('…'), srcLine);
+  assert.ok(body.length <= 122, `windowed body too wide: ${body.length}`);
+  assert.ok(!r.stderr.includes('a'.repeat(200)), 'full line should not be shown');
+  // No-color path still draws the caret row.
+  assert.match(r.stderr, /\| +\^/);
+});
+
+test('codeFrameWidth: 0 disables windowing and shows the full line', () => {
+  const top = setupTopDir('window-disabled', {
+    'package.json': JSON.stringify({ xtatic: { codeFrameWidth: 0 } }),
+    'pages/index.md': `---\ntitle: T\n---\n\n${LONG_LINE}\n\n# T\n`,
+  });
+  const r = runCli(top, { NO_COLOR: '1' });
+  assert.notEqual(r.status, 0);
+  assert.ok(r.stderr.includes('a'.repeat(200)), 'full line should be shown verbatim');
+  assert.ok(!r.stderr.includes('…'), 'no ellipsis when windowing is off');
+});
+
+test('a non-numeric codeFrameWidth is rejected with a clear message', () => {
+  const top = setupTopDir('window-bad-config', {
+    'package.json': JSON.stringify({ xtatic: { codeFrameWidth: -3 } }),
+    'pages/index.md': '# ok\n',
+  });
+  const r = runCli(top);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /xtatic\.codeFrameWidth must be a non-negative integer/);
+});
+
 test('each parse-error frame sits directly under its own message', () => {
   const top = setupTopDir('frames-interleaved', {
     'pages/one.md':

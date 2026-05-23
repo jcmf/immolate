@@ -75,6 +75,7 @@ let errorLayout;
 let errorReloadInterval;
 let autoInstall = false;
 let fontSubset;
+let codeFrameWidth;
 
 const pkgPath = path.join(topDir, 'package.json');
 if (fs.existsSync(pkgPath)) {
@@ -138,6 +139,16 @@ if (fs.existsSync(pkgPath)) {
       process.exit(1);
     }
     errorReloadInterval = v;
+  }
+  if (pkg.xtatic?.codeFrameWidth != null) {
+    const v = pkg.xtatic.codeFrameWidth;
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) {
+      console.error(
+        `xtatic.codeFrameWidth must be a non-negative integer (columns; 0 disables windowing); got ${JSON.stringify(v)}.`,
+      );
+      process.exit(1);
+    }
+    codeFrameWidth = v;
   }
 }
 
@@ -217,11 +228,14 @@ const buildOptions = {
   assetInlineThreshold,
   autoInstall,
   fontSubset,
+  // Lint-output concern, not consumed by build() — threaded here so watch/serve
+  // (which build via watch) can pass it to runLint the same way `build` does.
+  codeFrameWidth,
 };
 
 if (command === 'build') {
   try {
-    await runLint({ topDir, outputDir });
+    await runLint({ topDir, outputDir, codeFrameWidth });
     await build({ ...buildOptions, fs });
   } catch (e) {
     if (process.env.XTATIC_DEBUG) throw e;

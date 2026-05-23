@@ -340,7 +340,17 @@ When enabled, the first time a build needs a missing peer dep, xtatic shells out
 - `xtatic/builtin-imports` — flags default imports, namespace imports, and unknown export names against `xtatic:builtins`/`xtatic:image`/`xtatic:style`/`xtatic:font`. Errors carry the suggested fix (e.g. *"`xtatic:style` has no default export. Use `import {Style} from 'xtatic:style'` instead."*).
 - `import/default` and `no-undef` — applied to `.js`/`.jsx` only. Off for `.md`/`.mdx` because xtatic's default-import semantics there bind the whole module object rather than `mm.default` (a deliberate divergence from ESM).
 
-The config is currently frozen — no user override knob yet; that's a planned follow-up. `eslint`, `eslint-plugin-import`, and `eslint-plugin-mdx` are hard runtime dependencies, so there's nothing to install.
+Parse errors print a source-code frame pointing at the offending spot. When color is available (a TTY, or the dev server's browser error page), the bad characters are highlighted inline on the source line; otherwise (piped output, CI) a `^` caret is drawn on the line below. Long lines are windowed around the error — clipped to **120 columns** with `…` markers — so the highlight stays on screen instead of scrolling off. Set `xtatic.codeFrameWidth` in `package.json` to change that width, or `0` to disable windowing and always show the full line:
+
+```json
+{
+  "xtatic": {
+    "codeFrameWidth": 80
+  }
+}
+```
+
+The lint rule set itself is currently frozen — no user override knob yet; that's a planned follow-up. `eslint`, `eslint-plugin-import`, and `eslint-plugin-mdx` are hard runtime dependencies, so there's nothing to install.
 
 ## Limitations
 
