@@ -48,6 +48,21 @@ test('ansiToHtml handles bold + dim + reset transitions', () => {
   assert.match(html, /E$/);
 });
 
+test('ansiToHtml renders the bold-white-on-red highlight as inline style', () => {
+  const html = ansiToHtml('\x1b[1;97;41mX\x1b[0mY');
+  assert.match(
+    html,
+    /<span style="color:#fff;background:#cd3131;font-weight:bold">X<\/span>/,
+  );
+  assert.match(html, />Y$/);
+});
+
+test('ansiToHtml clears the background on the 49 reset code', () => {
+  const html = ansiToHtml('\x1b[41mA\x1b[49mB');
+  assert.match(html, /<span style="background:#cd3131">A<\/span>/);
+  assert.match(html, /B$/);
+});
+
 test('ansiToHtml closes spans cleanly at end of string', () => {
   const html = ansiToHtml('\x1b[31mred');
   const opens = (html.match(/<span/g) ?? []).length;

@@ -25,8 +25,11 @@ function setupTopDir(slug, files) {
   return top;
 }
 
-function runCli(top) {
-  return spawnSync(process.execPath, [cli, 'build', top], { encoding: 'utf8' });
+function runCli(top, env) {
+  return spawnSync(process.execPath, [cli, 'build', top], {
+    encoding: 'utf8',
+    env: env ? { ...process.env, ...env } : process.env,
+  });
 }
 
 test('lint passes when imports are well-formed', () => {
@@ -164,6 +167,22 @@ test('parse error includes a source code frame with a caret', () => {
   assert.match(r.stderr, /Parsing error: Could not parse import\/exports with acorn/);
   assert.match(r.stderr, /> 5 \| export outputPath = "\/feed\.xml"/);
   assert.match(r.stderr, /^ {4}\| {8}\^$/m);
+});
+
+test('with color on, the frame highlights the span inline and drops the caret row', () => {
+  const top = setupTopDir('parse-error-frame-color', {
+    'pages/feed.md':
+      '---\ntitle: Feed\n---\n\nexport outputPath = "/feed.xml"\n\n# Feed\n',
+  });
+  const r = runCli(top, { FORCE_COLOR: '1' });
+  assert.notEqual(r.status, 0);
+  // The bold-bright-white-on-red highlight wraps the offending characters...
+  assert.ok(r.stderr.includes('\x1b[1;97;41m'), r.stderr);
+  // ...the source text still surrounds it (split around the highlight)...
+  assert.match(r.stderr, /export/);
+  assert.match(r.stderr, /feed\.xml/);
+  // ...and there is no longer a separate caret row.
+  assert.doesNotMatch(r.stderr, /\| *\^+\s*$/m);
 });
 
 test('each parse-error frame sits directly under its own message', () => {

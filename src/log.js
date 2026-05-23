@@ -14,7 +14,7 @@ const CODES = {
   bold: 1,
 };
 
-function colorEnabled() {
+export function colorEnabled() {
   if (process.env.NO_COLOR != null && process.env.NO_COLOR !== '') return false;
   if (process.env.FORCE_COLOR != null) return process.env.FORCE_COLOR !== '0';
   return process.stdout.isTTY === true;
@@ -24,6 +24,15 @@ export function color(name, s) {
   const code = CODES[name];
   if (!code || !colorEnabled()) return String(s);
   return `\x1b[${code}m${s}\x1b[0m`;
+}
+
+// Eye-catching span highlight: bold bright-white text on a red background, used
+// to mark the exact offending characters inside a source line (where a caret on
+// a separate row would desync once the line soft-wraps). Bright-white-on-red
+// stays readable regardless of the terminal theme. No-op when color is off.
+export function highlight(s) {
+  if (!colorEnabled()) return String(s);
+  return `\x1b[1;97;41m${s}\x1b[0m`;
 }
 
 export function log(msg) {

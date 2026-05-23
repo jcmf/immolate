@@ -6,6 +6,7 @@ import { flat as mdxFlat } from 'eslint-plugin-mdx';
 import globals from 'globals';
 import { BUILTIN_SPECS } from './builtins-registry.js';
 import xtaticBuiltinImports from './eslint-rules/xtatic-builtin-imports.js';
+import { color, colorEnabled, highlight } from './log.js';
 
 const SOURCE_EXT_RE = /\.(mdx?|jsx?)$/i;
 const XTATIC_IGNORE = BUILTIN_SPECS.map((s) => `^${s}$`);
@@ -155,23 +156,41 @@ function safeRead(filePath) {
   }
 }
 
+// When color is on, the offending span is highlighted inline on the source line
+// itself (self-locating — it survives soft-wrapping of a long line, unlike a
+// caret on a separate row). When color is off (NO_COLOR, piped output, CI), we
+// fall back to the classic caret row so plain-text consumers still get a marker.
 function renderCodeFrame(source, line, column, endLine, endColumn) {
   const lines = source.split('\n');
   if (line < 1 || line > lines.length) return '';
   const first = Math.max(1, line - 2);
   const last = Math.min(lines.length, line + 2);
   const gutter = String(last).length;
+  const useColor = colorEnabled();
   const out = [];
   for (let i = first; i <= last; i++) {
-    const marker = i === line ? '> ' : '  ';
+    const isErr = i === line;
+    const marker = isErr ? '> ' : '  ';
     const num = String(i).padStart(gutter);
-    out.push(`${marker}${num} | ${lines[i - 1]}`);
-    if (i === line && column) {
-      const caretCol = column - 1;
-      const caretLen = endLine === line && endColumn && endColumn > column
+    const text = lines[i - 1];
+    if (isErr && column) {
+      const start = column - 1;
+      const len = endLine === line && endColumn && endColumn > column
         ? endColumn - column
         : 1;
-      out.push(`  ${' '.repeat(gutter)} | ${' '.repeat(caretCol)}${'^'.repeat(caretLen)}`);
+      if (useColor) {
+        const before = text.slice(0, start);
+        // An empty slice means the error sits past end-of-line; paint one space
+        // so there's still a visible block (the caret row had the same fudge).
+        const span = text.slice(start, start + len) || ' ';
+        const after = text.slice(start + len);
+        out.push(`${color('red', `${marker}${num}`)} | ${before}${highlight(span)}${after}`);
+      } else {
+        out.push(`${marker}${num} | ${text}`);
+        out.push(`  ${' '.repeat(gutter)} | ${' '.repeat(start)}${'^'.repeat(len)}`);
+      }
+    } else {
+      out.push(`${marker}${num} | ${text}`);
     }
   }
   return out.join('\n');

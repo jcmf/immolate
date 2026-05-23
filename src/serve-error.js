@@ -10,6 +10,13 @@ const FG = {
   94: '#3b8eea', 95: '#d670d6', 96: '#29b8db', 97: '#fff',
 };
 
+const BG = {
+  40: '#000', 41: '#cd3131', 42: '#0dbc79', 43: '#e5e510',
+  44: '#2472c8', 45: '#bc3fbc', 46: '#11a8cd', 47: '#e5e5e5',
+  100: '#666', 101: '#f14c4c', 102: '#23d18b', 103: '#f5f543',
+  104: '#3b8eea', 105: '#d670d6', 106: '#29b8db', 107: '#fff',
+};
+
 function escHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;')
@@ -26,10 +33,11 @@ export function ansiToHtml(s) {
   let out = '';
   let pos = 0;
   let spanOpen = false;
-  let state = { fg: null, bold: false, dim: false, underline: false };
+  let state = { fg: null, bg: null, bold: false, dim: false, underline: false };
   function styleStr() {
     const a = [];
     if (state.fg) a.push(`color:${state.fg}`);
+    if (state.bg) a.push(`background:${state.bg}`);
     if (state.bold) a.push('font-weight:bold');
     if (state.dim) a.push('opacity:0.65');
     if (state.underline) a.push('text-decoration:underline');
@@ -47,14 +55,16 @@ export function ansiToHtml(s) {
     pos = ANSI_RE.lastIndex;
     const codes = m[1] === '' ? [0] : m[1].split(';').map((x) => Number(x));
     for (const c of codes) {
-      if (c === 0) state = { fg: null, bold: false, dim: false, underline: false };
+      if (c === 0) state = { fg: null, bg: null, bold: false, dim: false, underline: false };
       else if (c === 1) state.bold = true;
       else if (c === 2) state.dim = true;
       else if (c === 4) state.underline = true;
       else if (c === 22) { state.bold = false; state.dim = false; }
       else if (c === 24) state.underline = false;
       else if (c === 39) state.fg = null;
+      else if (c === 49) state.bg = null;
       else if (FG[c]) state.fg = FG[c];
+      else if (BG[c]) state.bg = BG[c];
     }
     flushOpen();
   }
