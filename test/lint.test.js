@@ -166,6 +166,27 @@ test('parse error includes a source code frame with a caret', () => {
   assert.match(r.stderr, /^ {4}\| {8}\^$/m);
 });
 
+test('each parse-error frame sits directly under its own message', () => {
+  const top = setupTopDir('frames-interleaved', {
+    'pages/one.md':
+      '---\ntitle: One\n---\n\nexport bad one = 1\n\n# One\n',
+    'pages/two.md':
+      '---\ntitle: Two\n---\n\nexport bad two = 2\n\n# Two\n',
+  });
+  const r = runCli(top);
+  assert.notEqual(r.status, 0);
+  // The frame for each file must appear after that file's own message and
+  // before the next file's message — i.e. interleaved, not collected at the end.
+  const oneMsg = r.stderr.indexOf('pages/one.md');
+  const oneFrame = r.stderr.indexOf('> 5 | export bad one = 1');
+  const twoMsg = r.stderr.indexOf('pages/two.md');
+  const twoFrame = r.stderr.indexOf('> 5 | export bad two = 2');
+  assert.ok(oneMsg >= 0 && oneFrame >= 0 && twoMsg >= 0 && twoFrame >= 0, r.stderr);
+  assert.ok(oneMsg < oneFrame, 'first frame should follow first message');
+  assert.ok(oneFrame < twoMsg, 'first frame should precede second message');
+  assert.ok(twoMsg < twoFrame, 'second frame should follow second message');
+});
+
 test('lint catches builtin misuse in a .jsx component', () => {
   const top = setupTopDir('jsx-builtin-misuse', {
     'pages/index.mdx':

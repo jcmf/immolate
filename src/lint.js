@@ -103,27 +103,48 @@ export async function runLint({ topDir, outputDir }) {
   const results = await eslint.lintFiles(files);
   const errorCount = results.reduce((n, r) => n + r.errorCount, 0);
   if (errorCount === 0) return;
-  const formatter = await eslint.loadFormatter('stylish');
-  const output = await formatter.format(results);
-  const frames = formatFatalFrames(results);
-  const err = new Error(`Lint failed with ${errorCount} error${errorCount === 1 ? '' : 's'}:\n\n${output}${frames}`);
+  const output = formatResults(results);
+  const err = new Error(`Lint failed with ${errorCount} error${errorCount === 1 ? '' : 's'}:\n\n${output}\n`);
   err.lintFailed = true;
   throw err;
 }
 
-function formatFatalFrames(results) {
+// One block per file. Each message is printed on its own line and, when the
+// message carries a source-code frame (parse errors do), the frame is emitted
+// right under that message — not collected into a separate trailing section.
+function formatResults(results) {
   const blocks = [];
   for (const r of results) {
+    if (r.messages.length === 0) continue;
+    const locWidth = Math.max(
+      ...r.messages.map((m) => `${m.line ?? 0}:${m.column ?? 0}`.length),
+    );
+    const sevWidth = Math.max(
+      ...r.messages.map((m) => severityLabel(m.severity).length),
+    );
+    const lines = [r.filePath];
     for (const m of r.messages) {
-      if (!m.fatal || !m.line) continue;
-      const source = r.source ?? safeRead(r.filePath);
-      if (!source) continue;
-      const frame = renderCodeFrame(source, m.line, m.column, m.endLine, m.endColumn);
-      if (!frame) continue;
-      blocks.push(`${r.filePath}:${m.line}:${m.column ?? 1}\n${frame}`);
+      const loc = `${m.line ?? 0}:${m.column ?? 0}`.padEnd(locWidth);
+      const sev = severityLabel(m.severity).padEnd(sevWidth);
+      const rule = m.ruleId ? `  ${m.ruleId}` : '';
+      lines.push(`  ${loc}  ${sev}  ${m.message}${rule}`);
+      const frame = frameFor(r, m);
+      if (frame) lines.push('', frame, '');
     }
+    blocks.push(lines.join('\n'));
   }
-  return blocks.length === 0 ? '' : `\n${blocks.join('\n\n')}\n`;
+  return blocks.join('\n\n');
+}
+
+function severityLabel(severity) {
+  return severity === 2 ? 'error' : 'warning';
+}
+
+function frameFor(r, m) {
+  if (!m.fatal || !m.line) return '';
+  const source = r.source ?? safeRead(r.filePath);
+  if (!source) return '';
+  return renderCodeFrame(source, m.line, m.column, m.endLine, m.endColumn);
 }
 
 function safeRead(filePath) {
