@@ -56,9 +56,15 @@ function computeOutPath(mm, segments, outputDir, pageLabel) {
   return path.posix.join(outputDir, op);
 }
 
-function renderTree(mm, segments, outputDir, pages, seen) {
+function renderTree(mm, segments, outputDir, assetsDirAbs, pages, seen) {
   const page = segments.length ? segments.join('/') : '/';
   const outPath = computeOutPath(mm, segments, outputDir, page);
+  if (isInsideOrSame(assetsDirAbs, outPath)) {
+    throw new Error(
+      `Page "${page}" writes to "${outPath}", which is inside the generated assets directory "${assetsDirAbs}". ` +
+        `Rename the page (or its outputPath), or set a different xtatic.assetsDir.`,
+    );
+  }
   const prior = seen.get(outPath);
   if (prior !== undefined) {
     throw new Error(
@@ -78,7 +84,7 @@ function renderTree(mm, segments, outputDir, pages, seen) {
   );
   pages.push({ outPath, html });
   for (const child of mm.childPages) {
-    renderTree(child, [...segments, child.name], outputDir, pages, seen);
+    renderTree(child, [...segments, child.name], outputDir, assetsDirAbs, pages, seen);
   }
 }
 
@@ -98,6 +104,19 @@ function isInsideOrSame(parent, child) {
   if (parent === child) return true;
   const sep = parent.endsWith('/') ? parent : `${parent}/`;
   return child.startsWith(sep);
+}
+
+function assertValidAssetsDir(assetsDir) {
+  if (typeof assetsDir !== 'string' || assetsDir === '') {
+    throw new Error(
+      `assetsDir must be a non-empty string (got ${JSON.stringify(assetsDir)}).`,
+    );
+  }
+  if (assetsDir.includes('/') || assetsDir === '.' || assetsDir === '..') {
+    throw new Error(
+      `assetsDir "${assetsDir}" must be a single path segment (no "/", ".", or "..").`,
+    );
+  }
 }
 
 function assertSafeOutputDir(outputDir, sources) {
@@ -147,6 +166,7 @@ async function buildImpl({
   imageInlineThreshold,
   styleInlineThreshold,
   assetInlineThreshold,
+  assetsDir = '_assets',
   autoInstall = false,
   install,
   fontSubset,
@@ -160,6 +180,8 @@ async function buildImpl({
       ? path.posix.resolve(layoutsDir)
       : path.posix.join(topDir, 'layouts');
   assertSafeOutputDir(outputDir, { topDir, inputDir, layoutsDir });
+  assertValidAssetsDir(assetsDir);
+  const assetsDirAbs = path.posix.join(outputDir, assetsDir);
   fs = wrapZipFs(fs);
   await fs.promises.rm(outputDir, { recursive: true, force: true });
   const files = await walkMdx(fs, inputDir);
@@ -169,7 +191,7 @@ async function buildImpl({
   );
   const absByRel = new Map(files.map((f) => [f.relPath, f.absPath]));
 
-  const assetRegistry = createAssetRegistry({ fs, outputDir });
+  const assetRegistry = createAssetRegistry({ fs, outputDir, assetsDir });
   const imageRegistry = createImageRegistry({
     fs,
     topDir,
@@ -222,7 +244,7 @@ async function buildImpl({
     });
   }
   const pages = [];
-  renderTree(root, [], outputDir, pages, new Map());
+  renderTree(root, [], outputDir, assetsDirAbs, pages, new Map());
   const imageSubstitute = await imageRegistry.processAll();
   const styleSubstitute = await styleRegistry.processAll();
   // Plain-asset runs before font so the font registry can ask

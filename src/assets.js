@@ -12,15 +12,15 @@ const EMIT_TOKEN_RE = /__XTATIC_EMIT_([a-f0-9]+\.[a-z0-9]+)__/g;
 // written verbatim (and must not be round-tripped through utf8).
 const RELATIVIZE_EXTS = new Set(['css']);
 
-export function createAssetRegistry({ fs, outputDir }) {
+export function createAssetRegistry({ fs, outputDir, assetsDir = '_assets' }) {
   const emissions = new Map();
-  const assetsDir = `${outputDir}/_assets`;
+  const assetsRoot = `${outputDir}/${assetsDir}`;
 
   function emit(bytes, ext) {
     const hash = crypto.createHash('sha256').update(bytes).digest('hex').slice(0, 16);
     const fname = `${hash}.${ext}`;
     if (!emissions.has(fname)) {
-      emissions.set(fname, { absPath: `${assetsDir}/${fname}`, bytes, ext });
+      emissions.set(fname, { absPath: `${assetsRoot}/${fname}`, bytes, ext });
     }
     return `__XTATIC_EMIT_${fname}__`;
   }
@@ -32,7 +32,7 @@ export function createAssetRegistry({ fs, outputDir }) {
   // CSS, fromDir = the co-located file's dir).
   function relativize(text, fromDir) {
     return text.replace(EMIT_TOKEN_RE, (_, fname) => {
-      const rel = path.posix.relative(fromDir, `${assetsDir}/${fname}`);
+      const rel = path.posix.relative(fromDir, `${assetsRoot}/${fname}`);
       return rel === '' ? fname : rel;
     });
   }
@@ -47,7 +47,7 @@ export function createAssetRegistry({ fs, outputDir }) {
         dirs.add(dir);
       }
       const out = RELATIVIZE_EXTS.has(ext)
-        ? Buffer.from(relativize(bytes.toString('utf8'), assetsDir), 'utf8')
+        ? Buffer.from(relativize(bytes.toString('utf8'), assetsRoot), 'utf8')
         : bytes;
       await fs.promises.writeFile(absPath, out);
     }

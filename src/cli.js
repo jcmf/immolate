@@ -66,6 +66,7 @@ if (command === 'init') {
 let inputDir = 'pages';
 let outputDir = 'site';
 let layoutsDir = 'layouts';
+let assetsDir;
 let remarkPluginSpecs = [];
 let smartypantsConfig = true;
 let imageInlineThreshold;
@@ -83,6 +84,18 @@ if (fs.existsSync(pkgPath)) {
   if (pkg.xtatic?.inputDir) inputDir = pkg.xtatic.inputDir;
   if (pkg.xtatic?.outputDir) outputDir = pkg.xtatic.outputDir;
   if (pkg.xtatic?.layoutsDir) layoutsDir = pkg.xtatic.layoutsDir;
+  if (pkg.xtatic?.assetsDir != null) {
+    // Shape validation (single path segment) is deferred to build()'s
+    // assertValidAssetsDir — a single source of truth — so only the type is
+    // checked here for a friendly early message.
+    if (typeof pkg.xtatic.assetsDir !== 'string') {
+      console.error(
+        `xtatic.assetsDir must be a string; got ${JSON.stringify(pkg.xtatic.assetsDir)}.`,
+      );
+      process.exit(1);
+    }
+    assetsDir = pkg.xtatic.assetsDir;
+  }
   if (pkg.xtatic?.remarkPlugins) remarkPluginSpecs = pkg.xtatic.remarkPlugins;
   if (pkg.xtatic && 'smartypants' in pkg.xtatic) {
     const v = pkg.xtatic.smartypants;
@@ -222,6 +235,7 @@ const buildOptions = {
   outputDir,
   topDir,
   layoutsDir,
+  assetsDir,
   remarkPlugins,
   imageInlineThreshold,
   styleInlineThreshold,

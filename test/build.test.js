@@ -613,3 +613,81 @@ test('outputPath rejects a trailing slash (must name a file)', async () => {
     /Invalid outputPath "\/feed\/".*naming a file/s,
   );
 });
+
+test('shared assets go under a custom assetsDir', async () => {
+  const fs = makeFs({
+    '/in/index.md': '<img src="/shared.png" alt="s" />\n',
+    '/in/other.md': '<img src="/shared.png" alt="s" />\n',
+  });
+  await fs.promises.writeFile('/in/shared.png', Buffer.alloc(8192, 0xab));
+  await build({ inputDir: '/in', outputDir: '/out', assetsDir: 'static', fs });
+  const root = await fs.promises.readFile('/out/index.html', 'utf8');
+  const m = root.match(/<img src="(static\/[a-f0-9]+\.png)"/);
+  assert.ok(m, `expected a static/ URL in: ${root}`);
+  assert.equal((await fs.promises.stat(`/out/${m[1]}`)).size, 8192);
+  // The default _assets dir is not created when a custom name is configured.
+  await assert.rejects(() => fs.promises.stat('/out/_assets'));
+});
+
+test('a page colliding with the default assets directory is rejected', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# r\n',
+    '/in/_assets.md': '# clash\n',
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/in', outputDir: '/out', fs }),
+    /Page "_assets" writes to "\/out\/_assets\/index\.html", which is inside the generated assets directory "\/out\/_assets"/,
+  );
+});
+
+test('a page colliding with a custom assetsDir is rejected', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# r\n',
+    '/in/static.md': '# clash\n',
+  });
+  await assert.rejects(
+    () =>
+      build({ inputDir: '/in', outputDir: '/out', assetsDir: 'static', fs }),
+    /Page "static" writes to "\/out\/static\/index\.html", which is inside the generated assets directory "\/out\/static"/,
+  );
+});
+
+test('a page named _assets is fine once assetsDir is renamed away from it', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# r\n',
+    '/in/_assets.md': '# fine now\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', assetsDir: 'static', fs });
+  assert.match(
+    await fs.promises.readFile('/out/_assets/index.html', 'utf8'),
+    /fine now/,
+  );
+});
+
+test('outputPath into the assets directory is rejected', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# r\n',
+    '/in/sneaky.mdx':
+      '---\noutputPath: /_assets/evil.html\nlayout: null\n---\nx\n',
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/in', outputDir: '/out', fs }),
+    /Page "sneaky" writes to "\/out\/_assets\/evil\.html", which is inside the generated assets directory/,
+  );
+});
+
+test('assetsDir containing a slash is rejected', async () => {
+  const fs = makeFs({ '/in/index.md': '# r\n' });
+  await assert.rejects(
+    () => build({ inputDir: '/in', outputDir: '/out', assetsDir: 'a/b', fs }),
+    /assetsDir "a\/b" must be a single path segment/,
+  );
+});
+
+test('an empty assetsDir is rejected', async () => {
+  const fs = makeFs({ '/in/index.md': '# r\n' });
+  await assert.rejects(
+    () => build({ inputDir: '/in', outputDir: '/out', assetsDir: '', fs }),
+    /assetsDir must be a non-empty string/,
+  );
+});

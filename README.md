@@ -29,7 +29,8 @@ To override the input or output location, add an `xtatic` section to `TOP_DIR/pa
   "xtatic": {
     "inputDir": "src/pages",
     "outputDir": "dist",
-    "layoutsDir": "src/layouts"
+    "layoutsDir": "src/layouts",
+    "assetsDir": "_assets"
   }
 }
 ```
@@ -37,6 +38,8 @@ To override the input or output location, add an `xtatic` section to `TOP_DIR/pa
 Relative paths in config are resolved against `TOP_DIR`, not the working directory; absolute paths are used as-is.
 
 `OUTPUT_DIR` is wiped at the start of every build so that renames and deletions can't leave stale files behind. Don't point it at a directory that holds anything you want to keep, and don't hand-edit files inside it — anything you put there will be erased on the next run. As a guard against catastrophic misconfiguration, xtatic refuses to build if `outputDir` is `/`, equal to a source directory, or an ancestor of `topDir`/`inputDir`/`layoutsDir`.
+
+Shared, content-addressed assets (the hashed images, stylesheets, and fonts that aren't inlined or co-located) are written under `OUTPUT_DIR/_assets/`. Rename that directory with `xtatic.assetsDir` — it must be a single path segment (no `/`, `.`, or `..`). Because the build owns this directory, **a page may not write into it**: if a page's output path (whether the default `dir/index.html` or an `outputPath` override) lands inside the assets directory, the build fails with an error. Renaming `assetsDir` frees the original name for use as a page.
 
 ## How input maps to output
 
