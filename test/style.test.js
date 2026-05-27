@@ -31,13 +31,13 @@ test('emits a content-addressed file and <link> when CSS is above the threshold'
   });
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
-  const m = html.match(/<link rel="stylesheet" href="(\/_assets\/[a-f0-9]+\.css)">/);
+  const m = html.match(/<link rel="stylesheet" href="(_assets\/[a-f0-9]+\.css)">/);
   assert.ok(m, `expected link tag in: ${html}`);
-  const written = await fs.promises.readFile(`/out${m[1]}`, 'utf8');
+  const written = await fs.promises.readFile(`/out/${m[1]}`, 'utf8');
   assert.equal(written, css);
 });
 
-test('two pages using the same CSS share one /_assets file', async () => {
+test('two pages using the same CSS share one _assets file', async () => {
   const css = '.shared { color: green; }';
   const fs = makeFs({
     '/in/index.md':
@@ -51,9 +51,11 @@ test('two pages using the same CSS share one /_assets file', async () => {
   await build({ inputDir: '/in', outputDir: '/out', topDir: '/in', fs });
   const root = await fs.promises.readFile('/out/index.html', 'utf8');
   const other = await fs.promises.readFile('/out/other/index.html', 'utf8');
-  const rootHref = root.match(/href="(\/_assets\/[a-f0-9]+\.css)"/)[1];
-  const otherHref = other.match(/href="(\/_assets\/[a-f0-9]+\.css)"/)[1];
-  assert.equal(rootHref, otherHref);
+  // URLs are page-relative: the root page sees `_assets/x.css`, the nested
+  // page `../_assets/x.css` — same file, different relative path.
+  const rootHref = root.match(/href="(_assets\/[a-f0-9]+\.css)"/)[1];
+  const otherHref = other.match(/href="(\.\.\/_assets\/[a-f0-9]+\.css)"/)[1];
+  assert.equal(rootHref.split('/').pop(), otherHref.split('/').pop());
   const assets = await fs.promises.readdir('/out/_assets');
   assert.equal(assets.length, 1);
 });
@@ -69,11 +71,12 @@ test('rewrites url() references relative to the source CSS directory', async () 
   });
   await build({ inputDir: '/in', outputDir: '/out', topDir: '/in', fs });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
-  const linkHref = html.match(/href="(\/_assets\/[a-f0-9]+\.css)"/)[1];
-  const cssOut = await fs.promises.readFile(`/out${linkHref}`, 'utf8');
-  const urlMatch = cssOut.match(/url\("(\/_assets\/[a-f0-9]+\.png)"\)/);
+  const linkHref = html.match(/href="(_assets\/[a-f0-9]+\.css)"/)[1];
+  const cssOut = await fs.promises.readFile(`/out/${linkHref}`, 'utf8');
+  // The CSS lives in _assets/, so its url() ref to a sibling asset is bare.
+  const urlMatch = cssOut.match(/url\("([a-f0-9]+\.png)"\)/);
   assert.ok(urlMatch, `expected rewritten url in: ${cssOut}`);
-  const referenced = await fs.promises.stat(`/out${urlMatch[1]}`);
+  const referenced = await fs.promises.stat(`/out/_assets/${urlMatch[1]}`);
   assert.ok(referenced.size > 0);
 });
 
@@ -88,9 +91,9 @@ test('rewrites url() with a leading-slash path against topDir', async () => {
   });
   await build({ inputDir: '/in', outputDir: '/out', topDir: '/in', fs });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
-  const linkHref = html.match(/href="(\/_assets\/[a-f0-9]+\.css)"/)[1];
-  const cssOut = await fs.promises.readFile(`/out${linkHref}`, 'utf8');
-  assert.match(cssOut, /url\("\/_assets\/[a-f0-9]+\.png"\)/);
+  const linkHref = html.match(/href="(_assets\/[a-f0-9]+\.css)"/)[1];
+  const cssOut = await fs.promises.readFile(`/out/${linkHref}`, 'utf8');
+  assert.match(cssOut, /url\("[a-f0-9]+\.png"\)/);
 });
 
 test('passes data:, http(s):, //, and # URLs through verbatim', async () => {
@@ -125,9 +128,9 @@ test('fonts referenced via @font-face url() resolve and emit', async () => {
   });
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
-  const linkHref = html.match(/href="(\/_assets\/[a-f0-9]+\.css)"/)[1];
-  const cssOut = await fs.promises.readFile(`/out${linkHref}`, 'utf8');
-  assert.match(cssOut, /url\("\/_assets\/[a-f0-9]+\.woff2"\)/);
+  const linkHref = html.match(/href="(_assets\/[a-f0-9]+\.css)"/)[1];
+  const cssOut = await fs.promises.readFile(`/out/${linkHref}`, 'utf8');
+  assert.match(cssOut, /url\("[a-f0-9]+\.woff2"\)/);
 });
 
 test('.ttf url() inside CSS emits as-is (no auto-transcode); use <Font> for woff2', async () => {
@@ -141,9 +144,9 @@ test('.ttf url() inside CSS emits as-is (no auto-transcode); use <Font> for woff
   });
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
-  const linkHref = html.match(/href="(\/_assets\/[a-f0-9]+\.css)"/)[1];
-  const cssOut = await fs.promises.readFile(`/out${linkHref}`, 'utf8');
-  assert.match(cssOut, /url\("\/_assets\/[a-f0-9]+\.ttf"\) format\('truetype'\)/);
+  const linkHref = html.match(/href="(_assets\/[a-f0-9]+\.css)"/)[1];
+  const cssOut = await fs.promises.readFile(`/out/${linkHref}`, 'utf8');
+  assert.match(cssOut, /url\("[a-f0-9]+\.ttf"\) format\('truetype'\)/);
   assert.doesNotMatch(cssOut, /woff2/);
 });
 
@@ -159,7 +162,7 @@ test('pass-through attrs survive: media on <style> and on <link>', async () => {
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
   assert.match(html, /<style media="print">\.a \{\}<\/style>/);
-  assert.match(html, /<link rel="stylesheet" href="\/_assets\/[a-f0-9]+\.css" media="screen">/);
+  assert.match(html, /<link rel="stylesheet" href="_assets\/[a-f0-9]+\.css" media="screen">/);
 });
 
 test('className is renamed to class on the emitted tag', async () => {
@@ -224,7 +227,7 @@ test('styleInlineThreshold build option sets the project-wide default', async ()
     fs,
   });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
-  assert.match(html, /<link rel="stylesheet" href="\/_assets\//);
+  assert.match(html, /<link rel="stylesheet" href="_assets\//);
 });
 
 test('Style works when imported from a .jsx component', async () => {

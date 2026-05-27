@@ -42,7 +42,7 @@ test('emits a content-addressed file when output is above inlineThreshold', asyn
   await fs.promises.writeFile('/in/dot.png', png);
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
-  const m = html.match(/<img src="(\/_assets\/[a-f0-9]+\.avif)"/);
+  const m = html.match(/<img src="(_assets\/[a-f0-9]+\.avif)"/);
   assert.ok(m, `expected asset URL in: ${html}`);
   const fname = m[1].split('/').pop();
   const stat = await fs.promises.stat(`/out/_assets/${fname}`);
@@ -105,9 +105,9 @@ test('two pages using the same image+opts emit only one asset file', async () =>
   await build({ inputDir: '/in', outputDir: '/out', topDir: '/in', fs });
   const root = await fs.promises.readFile('/out/index.html', 'utf8');
   const other = await fs.promises.readFile('/out/other/index.html', 'utf8');
-  const rootSrc = root.match(/src="(\/_assets\/[a-f0-9]+\.avif)"/)[1];
-  const otherSrc = other.match(/src="(\/_assets\/[a-f0-9]+\.avif)"/)[1];
-  assert.equal(rootSrc, otherSrc);
+  const rootSrc = root.match(/src="(_assets\/[a-f0-9]+\.avif)"/)[1];
+  const otherSrc = other.match(/src="(\.\.\/_assets\/[a-f0-9]+\.avif)"/)[1];
+  assert.equal(rootSrc.split('/').pop(), otherSrc.split('/').pop());
   const assets = await fs.promises.readdir('/out/_assets');
   assert.equal(assets.length, 1);
 });
@@ -162,9 +162,9 @@ test('SVG sources are passed through verbatim, not rasterized', async () => {
   });
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
-  const m = html.match(/<img src="(\/_assets\/[a-f0-9]+\.svg)"/);
+  const m = html.match(/<img src="(_assets\/[a-f0-9]+\.svg)"/);
   assert.ok(m);
-  const written = await fs.promises.readFile(`/out${m[1]}`, 'utf8');
+  const written = await fs.promises.readFile(`/out/${m[1]}`, 'utf8');
   assert.equal(written, SVG_FIXTURE);
 });
 
@@ -178,7 +178,7 @@ test('format option switches the encoder', async () => {
   await fs.promises.writeFile('/in/d.png', png);
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
-  assert.match(html, /<img src="\/_assets\/[a-f0-9]+\.webp"/);
+  assert.match(html, /<img src="_assets\/[a-f0-9]+\.webp"/);
 });
 
 test('an invalid format is rejected', async () => {
@@ -238,7 +238,7 @@ test('imageInlineThreshold build option sets the project-wide default', async ()
     fs,
   });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
-  assert.match(html, /<img src="\/_assets\//);
+  assert.match(html, /<img src="_assets\//);
 });
 
 test('a missing image source surfaces a clear error', async () => {

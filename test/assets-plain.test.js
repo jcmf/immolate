@@ -35,7 +35,7 @@ test('plain <img src> with large file used by one page co-locates', async () => 
   assert.equal(stat.size, 8192);
 });
 
-test('plain <img src> with large file used by multiple pages goes to /_assets', async () => {
+test('plain <img src> with large file used by multiple pages goes to _assets', async () => {
   const fs = makeFs({
     '/in/index.md': '<img src="/shared.png" alt="s" />\n',
     '/in/other.md': '<img src="/shared.png" alt="s" />\n',
@@ -44,11 +44,11 @@ test('plain <img src> with large file used by multiple pages goes to /_assets', 
   await build({ inputDir: '/in', outputDir: '/out', topDir: '/in', fs });
   const root = await fs.promises.readFile('/out/index.html', 'utf8');
   const other = await fs.promises.readFile('/out/other/index.html', 'utf8');
-  const m1 = root.match(/<img src="(\/_assets\/[a-f0-9]+\.png)"/);
-  const m2 = other.match(/<img src="(\/_assets\/[a-f0-9]+\.png)"/);
-  assert.ok(m1, `expected /_assets URL in: ${root}`);
-  assert.ok(m2, `expected /_assets URL in: ${other}`);
-  assert.equal(m1[1], m2[1]);
+  const m1 = root.match(/<img src="(_assets\/[a-f0-9]+\.png)"/);
+  const m2 = other.match(/<img src="(\.\.\/_assets\/[a-f0-9]+\.png)"/);
+  assert.ok(m1, `expected _assets URL in: ${root}`);
+  assert.ok(m2, `expected _assets URL in: ${other}`);
+  assert.equal(m1[1].split('/').pop(), m2[1].split('/').pop());
   const assets = await fs.promises.readdir('/out/_assets');
   assert.equal(assets.length, 1);
 });
@@ -92,7 +92,7 @@ test('data-xtatic-placement="inline" forces inline regardless of size', async ()
   assert.doesNotMatch(html, /data-xtatic-placement/);
 });
 
-test('data-xtatic-placement="shared" forces /_assets even when small', async () => {
+test('data-xtatic-placement="shared" forces _assets even when small', async () => {
   const fs = makeFs({
     '/in/index.md':
       '<img src="./tiny.png" alt="t" data-xtatic-placement="shared" />\n',
@@ -100,7 +100,7 @@ test('data-xtatic-placement="shared" forces /_assets even when small', async () 
   await fs.promises.writeFile('/in/tiny.png', bytes(10));
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
-  assert.match(html, /<img src="\/_assets\/[a-f0-9]+\.png"/);
+  assert.match(html, /<img src="_assets\/[a-f0-9]+\.png"/);
   assert.doesNotMatch(html, /data-xtatic-placement/);
 });
 
@@ -160,7 +160,7 @@ test('co-located URL inside a nested page dir uses subdir-relative path', async 
   assert.equal(stat.size, 8192);
 });
 
-test('asset in a parent dir of the page falls back to /_assets (no .. URLs)', async () => {
+test('asset in a parent dir of the page falls back to shared _assets', async () => {
   const fs = makeFs({
     '/in/index.md': '# r\n',
     '/in/posts/index.md': '# posts\n',
@@ -173,7 +173,7 @@ test('asset in a parent dir of the page falls back to /_assets (no .. URLs)', as
     '/out/posts/2024-01-01/index.html',
     'utf8',
   );
-  assert.match(html, /<img src="\/_assets\/[a-f0-9]+\.png"/);
+  assert.match(html, /<img src="\.\.\/\.\.\/_assets\/[a-f0-9]+\.png"/);
 });
 
 test('dynamic <img src={var}> classifies at runtime', async () => {
@@ -286,9 +286,11 @@ test('CSS via plain <link> has its url() refs rewritten', async () => {
     ? `/out${linkHref}`
     : `/out/${linkHref}`;
   const cssOut = await fs.promises.readFile(cssPath, 'utf8');
-  const urlMatch = cssOut.match(/url\("(\/_assets\/[a-f0-9]+\.png)"\)/);
+  // The CSS is co-located at /out/main.css, so its url() ref to the shared
+  // asset is relative to /out: `_assets/<hash>.png`.
+  const urlMatch = cssOut.match(/url\("(_assets\/[a-f0-9]+\.png)"\)/);
   assert.ok(urlMatch, `expected rewritten url in: ${cssOut}`);
-  const referenced = await fs.promises.stat(`/out${urlMatch[1]}`);
+  const referenced = await fs.promises.stat(`/out/${urlMatch[1]}`);
   assert.equal(referenced.size, 8192);
 });
 
@@ -312,7 +314,9 @@ test('CSS via plain <link> with topDir-absolute url() resolves against topDir', 
     ? `/out${linkHref}`
     : `/out/${linkHref}`;
   const cssOut = await fs.promises.readFile(cssPath, 'utf8');
-  assert.match(cssOut, /url\("\/_assets\/[a-f0-9]+\.png"\)/);
+  // The CSS is co-located at /out/css/main.css, so the shared asset (in
+  // /out/_assets/) is reached one level up: `../_assets/<hash>.png`.
+  assert.match(cssOut, /url\("\.\.\/_assets\/[a-f0-9]+\.png"\)/);
 });
 
 test('inline CSS via <link rel=stylesheet> renders as <style>, with url() refs rewritten', async () => {
@@ -325,7 +329,7 @@ test('inline CSS via <link rel=stylesheet> renders as <style>, with url() refs r
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
   const m = html.match(/<style>([\s\S]*?)<\/style>/);
   assert.ok(m, `expected inline <style> in: ${html}`);
-  assert.match(m[1], /url\("\/_assets\/[a-f0-9]+\.png"\)/);
+  assert.match(m[1], /url\("_assets\/[a-f0-9]+\.png"\)/);
   assert.doesNotMatch(html, /data:text\/css/);
   assert.doesNotMatch(html, /<link\b[^>]*\bhref="\.\/main\.css"/);
 });
@@ -508,8 +512,9 @@ test('plain-asset cssForPage returns [] when no asset tokens appear in html', as
 });
 
 test('plain-asset cssForPage reflects rewritten url() refs in the CSS', async () => {
-  // The CSS contains url('./pic.png') which gets rewritten to /_assets/<hash>.png
-  // before cssForPage sees it — that's the same text the browser would get.
+  // The CSS contains url('./pic.png') which css-urls rewrites to an emit
+  // placeholder (resolved to a relative URL only at write time); cssForPage
+  // exposes that placeholder form, which is all the font cascade needs.
   const { plainAssetRegistry, tokens } = await setupPlainAsset({
     files: {
       '/in/a.css': ".a { background: url('./pic.png'); }",
@@ -518,5 +523,5 @@ test('plain-asset cssForPage reflects rewritten url() refs in the CSS', async ()
     calls: [{ value: './a.css', opts: { kind: 'stylesheet' } }],
   });
   const [css] = plainAssetRegistry.cssForPage(tokens[0]);
-  assert.match(css, /url\("\/_assets\/[a-f0-9]+\.png"\)/);
+  assert.match(css, /url\("__XTATIC_EMIT_[a-f0-9]+\.png__"\)/);
 });

@@ -239,10 +239,16 @@ async function buildImpl({
   });
   await assetRegistry.writeAll();
   await plainAssetRegistry.writeAll();
+  // Relativize runs last (outermost): the four registry substitutes leave
+  // `__XTATIC_EMIT_…__` placeholders for shared /_assets/ files; this rewrites
+  // each to a path relative to the page's own output directory.
   const substitute = (html, outPath) =>
-    assetSubstitute(
-      fontSubstitute(styleSubstitute(imageSubstitute(html)), outPath),
-      outPath,
+    assetRegistry.relativize(
+      assetSubstitute(
+        fontSubstitute(styleSubstitute(imageSubstitute(html)), outPath),
+        outPath,
+      ),
+      path.posix.dirname(outPath),
     );
   await writePages(pages, substitute, fs);
 }

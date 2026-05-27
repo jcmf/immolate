@@ -209,7 +209,7 @@ import {Image} from 'xtatic:image';
 - `format` — `'avif'` (default), `'webp'`, `'jpeg'`, `'png'`. SVG sources are passed through unchanged; specifying a format on an SVG is an error.
 - `quality` — encoder quality (sharp's per-format defaults if unset).
 - `fit` — sharp fit mode: `'cover' | 'contain' | 'fill' | 'inside' | 'outside'`. Default `'inside'`.
-- `inlineThreshold` — bytes. Outputs at or below this size are inlined as `data:` URLs; outputs above it are written to `OUTPUT_DIR/_assets/<hash>.<ext>` and referenced by absolute URL. Defaults to **8192 bytes**, configurable project-wide via `package.json` `xtatic.imageInlineThreshold`.
+- `inlineThreshold` — bytes. Outputs at or below this size are inlined as `data:` URLs; outputs above it are written to `OUTPUT_DIR/_assets/<hash>.<ext>` and referenced by a page-relative URL. Defaults to **8192 bytes**, configurable project-wide via `package.json` `xtatic.imageInlineThreshold`.
 
 **Behavior baked in by default:**
 
@@ -217,7 +217,7 @@ import {Image} from 'xtatic:image';
 - Output `width` and `height` attributes are always emitted, computed from the *processed* image, so the browser doesn't reflow on load.
 - Identical `(src, processing-options)` deduplicates to a single asset file across the whole site.
 
-Any extra props (`className`, `loading`, `decoding`, `id`, `data-*`, etc.) pass through to the rendered `<img>`. `className` is rewritten to `class`. Asset URLs are absolute (`/_assets/…`), so the site is expected to be served from the root.
+Any extra props (`className`, `loading`, `decoding`, `id`, `data-*`, etc.) pass through to the rendered `<img>`. `className` is rewritten to `class`. Shared assets live under `OUTPUT_DIR/_assets/` but are referenced by a URL relative to each page, so the site works served from the domain root or any subpath.
 
 Single-output-per-call only for now — `<picture>`/`srcset` for responsive images is a planned follow-up. There's no build cache yet either, so sharp re-runs on every build.
 
@@ -236,7 +236,7 @@ import {Style} from 'xtatic:style';
 - `src` (required) — path to the source CSS file. Same resolution rules as `<Image>`: `/foo` is rooted at `TOP_DIR`, anything else is relative to the importing file.
 - `inlineThreshold` — bytes. CSS at or below this size is emitted inline as `<style>...</style>`; above, it goes to `OUTPUT_DIR/_assets/<hash>.css` and the call site gets a `<link>` instead. Defaults to **2048 bytes**, configurable project-wide via `package.json` `xtatic.styleInlineThreshold`.
 
-**`url()` rewriting.** Any `url(...)` token inside the CSS — `background-image`, `@font-face src`, `cursor`, etc. — is resolved relative to the source CSS file's directory (or against `TOP_DIR` for `/`-rooted paths), the referenced bytes are hashed, and the URL is rewritten to `/_assets/<hash>.<ext>`. URLs starting with `data:`, `http://`, `https://`, `//`, or `#` (SVG fragment refs like `clip-path: url(#mask)`) are passed through unchanged. Identical references across multiple CSS files share a single asset file.
+**`url()` rewriting.** Any `url(...)` token inside the CSS — `background-image`, `@font-face src`, `cursor`, etc. — is resolved relative to the source CSS file's directory (or against `TOP_DIR` for `/`-rooted paths), the referenced bytes are hashed, copied under `OUTPUT_DIR/_assets/`, and the URL is rewritten to point there by a path relative to wherever the CSS ends up (inlined into the page, a shared `.css`, or co-located). URLs starting with `data:`, `http://`, `https://`, `//`, or `#` (SVG fragment refs like `clip-path: url(#mask)`) are passed through unchanged. Identical references across multiple CSS files share a single asset file.
 
 Any extra props (`media`, `nonce`, `crossorigin`, `id`, `data-*`, etc.) pass through to the rendered `<style>` or `<link>`. `className` is rewritten to `class`.
 
@@ -273,7 +273,7 @@ For the common case where the glyphs you need aren't a fixed string but "whateve
 - `subset` — boolean. Per-call opt-in/out for [auto-subsetting](#auto-subsetting). `subset={true}` opts this one font in even without the global flag; `subset={false}` opts it out when the global flag is on. Has no effect if `text=` is also set.
 - `preload` — boolean (default `false`). When set, a `<link rel="preload" as="font" type="font/woff2" href="…" crossorigin>` is emitted just before the `<style>` block.
 
-Identical `src` files dedupe to a single asset across the whole site, regardless of how many `<Font>` calls reference them (modulo `text` — see above). Output URLs are absolute (`/_assets/…`); the site is expected to be served from the root.
+Identical `src` files dedupe to a single asset across the whole site, regardless of how many `<Font>` calls reference them (modulo `text` — see above). Asset URLs are page-relative (the `@font-face src:` and any `<link rel=preload>` point at `_assets/` relative to the page), so the site can be served from any path.
 
 `<Font>` rejects unknown props (no silent pass-through) — if you need to customize the emitted `<style>` or `<link>` further, write the markup by hand.
 

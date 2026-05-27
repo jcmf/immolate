@@ -46,7 +46,10 @@ async function renderOne(files, props, { transcode, subset } = {}) {
   const { html: token } = Font(props);
   const substitute = await fontRegistry.processAll();
   await assetRegistry.writeAll();
-  return { html: substitute(token), token, fs };
+  // Mirror index.js: relativize emit placeholders against a root page's dir,
+  // so assertions see the real `_assets/<hash>` shape rather than the token.
+  const html = assetRegistry.relativize(substitute(token), '/out');
+  return { html, token, fs };
 }
 
 test('.ttf source is transcoded to woff2 and emitted with format("woff2")', async () => {
@@ -55,10 +58,10 @@ test('.ttf source is transcoded to woff2 and emitted with format("woff2")', asyn
     { src: './f.ttf', family: 'Inter' },
   );
   const m = html.match(
-    /<style>@font-face\{font-family:"Inter";src:url\("(\/_assets\/[a-f0-9]+\.woff2)"\) format\("woff2"\)\}<\/style>/,
+    /<style>@font-face\{font-family:"Inter";src:url\("(_assets\/[a-f0-9]+\.woff2)"\) format\("woff2"\)\}<\/style>/,
   );
   assert.ok(m, `unexpected html: ${html}`);
-  const written = await fs.promises.readFile(`/out${m[1]}`);
+  const written = await fs.promises.readFile(`/out/${m[1]}`);
   assert.equal(Buffer.compare(written, STUB_WOFF2), 0);
 });
 
@@ -67,7 +70,7 @@ test('.otf source is transcoded to woff2', async () => {
     { '/in/f.otf': 'OTFRAW' },
     { src: './f.otf', family: 'X' },
   );
-  assert.match(html, /url\("\/_assets\/[a-f0-9]+\.woff2"\) format\("woff2"\)/);
+  assert.match(html, /url\("_assets\/[a-f0-9]+\.woff2"\) format\("woff2"\)/);
 });
 
 test('.woff2 source passes through without transcoding', async () => {
@@ -83,9 +86,9 @@ test('.woff2 source passes through without transcoding', async () => {
     },
   );
   assert.equal(called, false);
-  const m = html.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\) format\("woff2"\)/);
+  const m = html.match(/url\("(_assets\/[a-f0-9]+\.woff2)"\) format\("woff2"\)/);
   assert.ok(m);
-  const written = await fs.promises.readFile(`/out${m[1]}`, 'utf8');
+  const written = await fs.promises.readFile(`/out/${m[1]}`, 'utf8');
   assert.equal(written, 'WOFF2RAW');
 });
 
@@ -102,7 +105,7 @@ test('.woff (v1) source passes through without transcoding', async () => {
     },
   );
   assert.equal(called, false);
-  assert.match(html, /url\("\/_assets\/[a-f0-9]+\.woff"\) format\("woff"\)/);
+  assert.match(html, /url\("_assets\/[a-f0-9]+\.woff"\) format\("woff"\)/);
 });
 
 test('preload prop adds a <link rel=preload> before the @font-face style', async () => {
@@ -111,7 +114,7 @@ test('preload prop adds a <link rel=preload> before the @font-face style', async
     { src: './f.ttf', family: 'Inter', preload: true },
   );
   const m = html.match(
-    /^<link rel="preload" as="font" type="font\/woff2" href="(\/_assets\/[a-f0-9]+\.woff2)" crossorigin><style>@font-face\{[^}]*src:url\("\1"\) format\("woff2"\)\}<\/style>$/,
+    /^<link rel="preload" as="font" type="font\/woff2" href="(_assets\/[a-f0-9]+\.woff2)" crossorigin><style>@font-face\{[^}]*src:url\("\1"\) format\("woff2"\)\}<\/style>$/,
   );
   assert.ok(m, `unexpected html: ${html}`);
 });
@@ -272,10 +275,10 @@ test('text subsets the source and emits the result as woff2', async () => {
     { src: './logo.otf', family: 'Logo', text: 'xtatic' },
   );
   const m = html.match(
-    /<style>@font-face\{font-family:"Logo";src:url\("(\/_assets\/[a-f0-9]+\.woff2)"\) format\("woff2"\)\}<\/style>/,
+    /<style>@font-face\{font-family:"Logo";src:url\("(_assets\/[a-f0-9]+\.woff2)"\) format\("woff2"\)\}<\/style>/,
   );
   assert.ok(m, `unexpected html: ${html}`);
-  const written = await fs.promises.readFile(`/out${m[1]}`, 'utf8');
+  const written = await fs.promises.readFile(`/out/${m[1]}`, 'utf8');
   // canonical glyph set for "xtatic" = sorted unique chars
   assert.equal(written, 'wOF2-subset[acitx]');
 });
@@ -293,7 +296,7 @@ test('text subsets a .woff2 source too (not just transcodable formats)', async (
     },
   );
   assert.equal(transcodeCalled, false);
-  assert.match(html, /url\("\/_assets\/[a-f0-9]+\.woff2"\) format\("woff2"\)/);
+  assert.match(html, /url\("_assets\/[a-f0-9]+\.woff2"\) format\("woff2"\)/);
 });
 
 test('text on a .ttf source subsets instead of transcoding', async () => {
@@ -390,7 +393,7 @@ test('Font is usable end-to-end from an .md page', async () => {
   const html = await fs.promises.readFile('/out/index.html', 'utf8');
   assert.match(
     html,
-    /<style>@font-face\{font-family:"Inter";font-weight:400;src:url\("\/_assets\/[a-f0-9]+\.woff2"\) format\("woff2"\)\}<\/style>/,
+    /<style>@font-face\{font-family:"Inter";font-weight:400;src:url\("_assets\/[a-f0-9]+\.woff2"\) format\("woff2"\)\}<\/style>/,
   );
 });
 
@@ -454,9 +457,9 @@ test('real wawoff2 transcodes the bundled TTF to valid WOFF2 via <Font>', async 
   );
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const html = fs.readFileSync('/out/index.html', 'utf8');
-  const m = html.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/);
+  const m = html.match(/url\("(_assets\/[a-f0-9]+\.woff2)"\)/);
   assert.ok(m, `no font asset URL in: ${html}`);
-  const written = fs.readFileSync(`/out${m[1]}`);
+  const written = fs.readFileSync(`/out/${m[1]}`);
   assert.equal(written.slice(0, 4).toString('ascii'), 'wOF2');
   assert.ok(written.length < FIXTURE_TTF.length);
 });
@@ -474,12 +477,12 @@ test('real subset-font: text= shrinks the bundled TTF and emits valid WOFF2 via 
   );
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const html = fs.readFileSync('/out/index.html', 'utf8');
-  const urls = [...html.matchAll(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/g)].map(
+  const urls = [...html.matchAll(/url\("(_assets\/[a-f0-9]+\.woff2)"\)/g)].map(
     (m) => m[1],
   );
   assert.equal(urls.length, 2);
   assert.equal(urls[0], urls[1], 'same glyph set should share one asset');
-  const written = fs.readFileSync(`/out${urls[0]}`);
+  const written = fs.readFileSync(`/out/${urls[0]}`);
   assert.equal(written.slice(0, 4).toString('ascii'), 'wOF2');
   // a 5-glyph subset must be well under the (already small) ASCII fixture
   assert.ok(
@@ -536,10 +539,10 @@ test('mode:"all-text" subsets every font to the union of all rendered text', asy
   const pages = [{ outPath: '/out/index.html', html: '<p>Hello world!</p>' }];
   const substitute = await fontRegistry.processAll(pages);
   await assetRegistry.writeAll();
-  const html = substitute(token);
-  const m = html.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/);
+  const html = assetRegistry.relativize(substitute(token), '/out');
+  const m = html.match(/url\("(_assets\/[a-f0-9]+\.woff2)"\)/);
   assert.ok(m, `unexpected html: ${html}`);
-  const written = await fs.promises.readFile(`/out${m[1]}`, 'utf8');
+  const written = await fs.promises.readFile(`/out/${m[1]}`, 'utf8');
   // canonical glyph set for "Hello world!" = ' ', '!', 'H', 'd', 'e', 'l',
   // 'o', 'r', 'w' (sorted unique)
   assert.equal(written, 'wOF2-subset[ !Hdelorw]');
@@ -558,9 +561,9 @@ test('per-call subset={true} opts in without global config (all-text)', async ()
   const pages = [{ outPath: '/out/index.html', html: '<p>abc</p>' }];
   const substitute = await fontRegistry.processAll(pages);
   await assetRegistry.writeAll();
-  const html = substitute(token);
-  const m = html.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/);
-  const written = await fs.promises.readFile(`/out${m[1]}`, 'utf8');
+  const html = assetRegistry.relativize(substitute(token), '/out');
+  const m = html.match(/url\("(_assets\/[a-f0-9]+\.woff2)"\)/);
+  const written = await fs.promises.readFile(`/out/${m[1]}`, 'utf8');
   assert.equal(written, 'wOF2-subset[abc]');
 });
 
@@ -864,7 +867,7 @@ test('hedge:"full" emits a complement face covering source-minus-primary', async
   const pages = [{ outPath: '/out/index.html', html: '<p>abc</p>' }];
   const substitute = await fontRegistry.processAll(pages);
   await assetRegistry.writeAll();
-  const html = substitute(token);
+  const html = assetRegistry.relativize(substitute(token), '/out');
   // Two @font-face rules in the emitted style.
   const matches = [...html.matchAll(/@font-face\{([^}]+)\}/g)];
   assert.equal(matches.length, 2);
@@ -897,7 +900,7 @@ test('hedge:"none" — no complement, no unicode-range on the primary face', asy
   const pages = [{ outPath: '/out/index.html', html: '<p>abc</p>' }];
   const substitute = await fontRegistry.processAll(pages);
   await assetRegistry.writeAll();
-  const html = substitute(token);
+  const html = assetRegistry.relativize(substitute(token), '/out');
   const matches = [...html.matchAll(/@font-face\{([^}]+)\}/g)];
   assert.equal(matches.length, 1);
   assert.doesNotMatch(matches[0][1], /unicode-range/);
@@ -918,7 +921,7 @@ test('hedge:"latin1" caps the complement to U+0000-U+00FF', async () => {
   const pages = [{ outPath: '/out/index.html', html: '<p>ab</p>' }];
   const substitute = await fontRegistry.processAll(pages);
   await assetRegistry.writeAll();
-  const html = substitute(token);
+  const html = assetRegistry.relativize(substitute(token), '/out');
   const matches = [...html.matchAll(/@font-face\{([^}]+)\}/g)];
   assert.equal(matches.length, 2);
   // Complement should only contain the latin-1 chars (c, d), not the arrow.
@@ -966,7 +969,7 @@ test('hedge: user-supplied unicodeRange disables hedge for that call', async () 
   const pages = [{ outPath: '/out/index.html', html: '<p>ab</p>' }];
   const substitute = await fontRegistry.processAll(pages);
   await assetRegistry.writeAll();
-  const html = substitute(token);
+  const html = assetRegistry.relativize(substitute(token), '/out');
   // Single face with the user-supplied unicode-range.
   const matches = [...html.matchAll(/@font-face\{([^}]+)\}/g)];
   assert.equal(matches.length, 1);
@@ -985,10 +988,10 @@ test('preloadHedge:"prefetch" emits a prefetch link for the complement', async (
   const pages = [{ outPath: '/out/index.html', html: '<p>ab</p>' }];
   const substitute = await fontRegistry.processAll(pages);
   await assetRegistry.writeAll();
-  const html = substitute(token);
+  const html = assetRegistry.relativize(substitute(token), '/out');
   // Primary preload + complement prefetch + style block.
-  assert.match(html, /<link rel="preload" as="font" type="font\/woff2" href="\/_assets\/[^"]+" crossorigin>/);
-  assert.match(html, /<link rel="prefetch" as="font" type="font\/woff2" href="\/_assets\/[^"]+" crossorigin>/);
+  assert.match(html, /<link rel="preload" as="font" type="font\/woff2" href="_assets\/[^"]+" crossorigin>/);
+  assert.match(html, /<link rel="prefetch" as="font" type="font\/woff2" href="_assets\/[^"]+" crossorigin>/);
   assert.equal((html.match(/<link /g) ?? []).length, 2);
 });
 
@@ -1004,7 +1007,7 @@ test('preloadHedge:"preload" emits a preload link for both faces', async () => {
   const pages = [{ outPath: '/out/index.html', html: '<p>ab</p>' }];
   const substitute = await fontRegistry.processAll(pages);
   await assetRegistry.writeAll();
-  const html = substitute(token);
+  const html = assetRegistry.relativize(substitute(token), '/out');
   // Two preloads.
   const preloads = html.match(/<link rel="preload"/g) ?? [];
   assert.equal(preloads.length, 2);
@@ -1022,7 +1025,7 @@ test('preloadHedge:false (default) — no link tag for the complement', async ()
   const pages = [{ outPath: '/out/index.html', html: '<p>ab</p>' }];
   const substitute = await fontRegistry.processAll(pages);
   await assetRegistry.writeAll();
-  const html = substitute(token);
+  const html = assetRegistry.relativize(substitute(token), '/out');
   // Only one link (the primary preload).
   assert.equal((html.match(/<link /g) ?? []).length, 1);
 });
@@ -1111,14 +1114,27 @@ test('scope:"page" — each page gets its own subset (all-text)', async () => {
   ];
   const substitute = await fontRegistry.processAll(pages);
   await assetRegistry.writeAll();
-  const idxHtml = substitute(pages[0].html, pages[0].outPath);
-  const aboutHtml = substitute(pages[1].html, pages[1].outPath);
-  const idxUrl = idxHtml.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/)[1];
-  const aboutUrl = aboutHtml.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/)[1];
+  // Relativize each page's URLs against its own output dir, as index.js does.
+  const idxHtml = assetRegistry.relativize(
+    substitute(pages[0].html, pages[0].outPath),
+    '/out',
+  );
+  const aboutHtml = assetRegistry.relativize(
+    substitute(pages[1].html, pages[1].outPath),
+    '/out/about',
+  );
+  const idxUrl = idxHtml.match(/url\("(_assets\/[a-f0-9]+\.woff2)"\)/)[1];
+  const aboutUrl = aboutHtml.match(/url\("(\.\.\/_assets\/[a-f0-9]+\.woff2)"\)/)[1];
   // Different pages → different glyph sets → different assets.
-  assert.notEqual(idxUrl, aboutUrl);
-  const idxBytes = await fs.promises.readFile(`/out${idxUrl}`, 'utf8');
-  const aboutBytes = await fs.promises.readFile(`/out${aboutUrl}`, 'utf8');
+  assert.notEqual(idxUrl.split('/').pop(), aboutUrl.split('/').pop());
+  const idxBytes = await fs.promises.readFile(
+    `/out/_assets/${idxUrl.split('/').pop()}`,
+    'utf8',
+  );
+  const aboutBytes = await fs.promises.readFile(
+    `/out/_assets/${aboutUrl.split('/').pop()}`,
+    'utf8',
+  );
   assert.equal(idxBytes, 'wOF2-subset[fo]');
   assert.equal(aboutBytes, 'wOF2-subset[abr]');
 });
@@ -1284,9 +1300,9 @@ test('fontSubset:{mode:"all-text"} end-to-end through build() with the real subs
     fontSubset: { mode: 'all-text' },
   });
   const html = fs.readFileSync('/out/index.html', 'utf8');
-  const m = html.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/);
+  const m = html.match(/url\("(_assets\/[a-f0-9]+\.woff2)"\)/);
   assert.ok(m);
-  const written = fs.readFileSync(`/out${m[1]}`);
+  const written = fs.readFileSync(`/out/${m[1]}`);
   assert.equal(written.slice(0, 4).toString('ascii'), 'wOF2');
   // a 10-glyph subset (" Hdelorw") must be well under the ASCII fixture
   assert.ok(
@@ -1317,13 +1333,14 @@ test('scope:"page" end-to-end through build() with the real subsetter', async ()
   });
   const idx = fs.readFileSync('/out/index.html', 'utf8');
   const about = fs.readFileSync('/out/about/index.html', 'utf8');
-  const idxUrl = idx.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/)[1];
-  const aboutUrl = about.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/)[1];
+  // index is at /out, about at /out/about — URLs are page-relative.
+  const idxUrl = idx.match(/url\("(_assets\/[a-f0-9]+\.woff2)"\)/)[1];
+  const aboutUrl = about.match(/url\("(\.\.\/_assets\/[a-f0-9]+\.woff2)"\)/)[1];
   // Different page text → different glyph sets → different assets per page.
-  assert.notEqual(idxUrl, aboutUrl);
+  assert.notEqual(idxUrl.split('/').pop(), aboutUrl.split('/').pop());
   // Both files exist and are valid WOFF2.
   for (const url of [idxUrl, aboutUrl]) {
-    const bytes = fs.readFileSync(`/out${url}`);
+    const bytes = fs.readFileSync(`/out/_assets/${url.split('/').pop()}`);
     assert.equal(bytes.slice(0, 4).toString('ascii'), 'wOF2');
   }
 });
@@ -1356,12 +1373,12 @@ test('hedge:"full" end-to-end with real fontkit — emits two faces and disjoint
   assert.match(faces[1][1], /unicode-range:U\+/);
   // Two distinct asset URLs.
   const urls = new Set(
-    [...html.matchAll(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/g)].map((m) => m[1]),
+    [...html.matchAll(/url\("(_assets\/[a-f0-9]+\.woff2)"\)/g)].map((m) => m[1]),
   );
   assert.equal(urls.size, 2);
   // Each asset is a valid WOFF2 file.
   for (const u of urls) {
-    const bytes = fs.readFileSync(`/out${u}`);
+    const bytes = fs.readFileSync(`/out/${u}`);
     assert.equal(bytes.slice(0, 4).toString('ascii'), 'wOF2');
   }
 });
@@ -1388,9 +1405,9 @@ test('fontSubset:true (default = css-static) end-to-end with the real subsetter'
     fontSubset: true, // defaults to css-static + face precision
   });
   const html = fs.readFileSync('/out/index.html', 'utf8');
-  const m = html.match(/url\("(\/_assets\/[a-f0-9]+\.woff2)"\)/);
+  const m = html.match(/url\("(_assets\/[a-f0-9]+\.woff2)"\)/);
   assert.ok(m);
-  const written = fs.readFileSync(`/out${m[1]}`);
+  const written = fs.readFileSync(`/out/${m[1]}`);
   assert.equal(written.slice(0, 4).toString('ascii'), 'wOF2');
   // The cascade attributes "Hello world" to Inter via body{font-family:Inter}.
   // A ~10-glyph subset must be well under the full transcoded font.

@@ -321,7 +321,17 @@ export function createPlainAssetRegistry({
         await fs.promises.mkdir(dir, { recursive: true });
         dirs.add(dir);
       }
-      await fs.promises.writeFile(absPath, bytes);
+      // A co-located .css can carry emit placeholders for url()-referenced
+      // assets that went to _assets/; rewrite them relative to this file's dir.
+      const ext = (EXT_RE.exec(absPath)?.[1] ?? '').toLowerCase();
+      const out =
+        ext === 'css'
+          ? Buffer.from(
+              assetRegistry.relativize(bytes.toString('utf8'), dir),
+              'utf8',
+            )
+          : bytes;
+      await fs.promises.writeFile(absPath, out);
     }
   }
 
