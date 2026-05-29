@@ -4,6 +4,9 @@ import { rewriteCssUrls } from './css-urls.js';
 import { attachContext, currentStack } from './render-context.js';
 
 const TOKEN_RE = /__XTATIC_ASSET_[a-f0-9]+__/g;
+// Any registry token (asset/image/style/font), anchored — used to make asset()
+// idempotent when a manual asset() result flows into a whitelisted attribute.
+const ANY_XTATIC_TOKEN_RE = /^__XTATIC_(?:ASSET|IMG|STYLE|FONT)_[a-f0-9]+__$/;
 const EXT_RE = /\.([a-z0-9]+)$/i;
 const VALID_PLACEMENTS = new Set(['inline', 'shared', 'co-located', 'auto']);
 
@@ -57,6 +60,17 @@ function escAttrValue(s) {
   return s.replaceAll('&', '&amp;').replaceAll('"', '&quot;');
 }
 
+// A page renders to `<dir>/index.html`; a link to it should point at the
+// directory (clean URL) rather than the literal index.html file. Override
+// pages (outputPath naming a real file like feed.xml) are linked as-is.
+function cleanPageUrl(rel) {
+  if (rel === 'index.html') return './';
+  if (rel.endsWith('/index.html')) {
+    return rel.slice(0, -'index.html'.length);
+  }
+  return rel;
+}
+
 export function createPlainAssetRegistry({
   fs,
   topDir,
@@ -86,13 +100,24 @@ export function createPlainAssetRegistry({
       if (typeof value !== 'string') return value;
       if (value === '') return value;
       if (isPassthroughUrl(value)) return value;
+      // Already an xtatic placeholder/token — e.g. a manual `asset()` call whose
+      // result lands in a now-whitelisted attribute like <a href={asset(...)}>,
+      // which recma-assets would otherwise wrap a second time. Idempotent.
+      if (ANY_XTATIC_TOKEN_RE.test(value)) return value;
+      // Split off a trailing ?query / #fragment so the path portion resolves
+      // and the suffix re-attaches to the rewritten URL (e.g. an <a href> to
+      // "./about.md#install" or an "./icon.svg#glyph" sprite reference).
+      const suffixMatch = value.match(/[?#].*$/s);
+      const suffix = suffixMatch ? suffixMatch[0] : '';
+      const pathPart = suffix ? value.slice(0, -suffix.length) : value;
+      if (pathPart === '') return value;
       const placement = opts.placement;
       if (placement !== undefined && !VALID_PLACEMENTS.has(placement)) {
         throw new Error(
           `asset("${value}"): invalid placement "${placement}" (use "inline", "shared", "co-located", or "auto"; in "${displayPath(importerAbsPath)}").`,
         );
       }
-      const absSrc = resolveSrc(importerAbsPath, value);
+      const absSrc = resolveSrc(importerAbsPath, pathPart);
       const token = makeToken();
       // recma-assets passes the `<img>`/`<link>`/… call site (tag + file:line:col)
       // for whitelisted attrs; the `__xtatic_asset` call itself isn't wrapped in a
@@ -112,6 +137,7 @@ export function createPlainAssetRegistry({
         importerAbsPath,
         absSrc,
         srcDisplay: value,
+        suffix,
         placement,
         kind: opts.kind ?? null,
         context,
@@ -138,7 +164,12 @@ export function createPlainAssetRegistry({
     }
 
     const tokenToPage = new Map();
+    // Source-file → output-path for every page in the build, so an <a href> /
+    // <area href> pointing at another page's source (e.g. "./about.md") can be
+    // rewritten to that page's rendered location rather than copied as a file.
+    const pageOutBySrc = new Map();
     for (const page of pages) {
+      if (page.srcPath) pageOutBySrc.set(page.srcPath, page.outPath);
       const found = page.html.match(TOKEN_RE);
       if (!found) continue;
       for (const t of found) tokenToPage.set(t, page.outPath);
@@ -156,12 +187,15 @@ export function createPlainAssetRegistry({
           pages: new Set(),
           explicitPlacement: undefined,
           ext: (EXT_RE.exec(call.absSrc)?.[1] ?? 'bin').toLowerCase(),
+          targetPageOut: pageOutBySrc.get(call.absSrc),
         };
         bySrc.set(call.absSrc, entry);
       }
       entry.calls.push({ ...call, pageOutPath });
       entry.pages.add(pageOutPath);
-      if (call.placement && call.placement !== 'auto') {
+      // A link to a page resolves to that page's URL, not a copied file —
+      // placement is meaningless, so skip the placement bookkeeping.
+      if (entry.targetPageOut === undefined && call.placement && call.placement !== 'auto') {
         if (
           entry.explicitPlacement &&
           entry.explicitPlacement !== call.placement
@@ -178,7 +212,9 @@ export function createPlainAssetRegistry({
     }
 
     await Promise.all(
-      [...bySrc.values()].map(async (entry) => {
+      [...bySrc.values()]
+        .filter((entry) => entry.targetPageOut === undefined)
+        .map(async (entry) => {
         try {
           try {
             entry.bytes = await fs.promises.readFile(entry.absSrc);
@@ -237,6 +273,21 @@ export function createPlainAssetRegistry({
     const stylesheetInlineTokens = new Map();
 
     for (const entry of bySrc.values()) {
+      // Link to another page: resolve to that page's output URL, relative to
+      // the linking page's own directory.
+      if (entry.targetPageOut !== undefined) {
+        const targetOut = entry.targetPageOut;
+        for (const call of entry.calls) {
+          tokenToResolver.set(call.token, (outPath) => {
+            const rel = path.posix.relative(
+              path.posix.dirname(outPath),
+              targetOut,
+            );
+            return cleanPageUrl(rel) + call.suffix;
+          });
+        }
+        continue;
+      }
       const placement = decidePlacement(entry);
       switch (placement) {
         case 'inline': {
@@ -247,7 +298,7 @@ export function createPlainAssetRegistry({
             if (cssText != null && call.kind === 'stylesheet') {
               stylesheetInlineTokens.set(call.token, cssText);
             } else {
-              tokenToResolver.set(call.token, () => url);
+              tokenToResolver.set(call.token, () => url + call.suffix);
             }
           }
           break;
@@ -255,7 +306,7 @@ export function createPlainAssetRegistry({
         case 'shared': {
           const url = assetRegistry.emit(entry.bytes, entry.ext);
           for (const call of entry.calls) {
-            tokenToResolver.set(call.token, () => url);
+            tokenToResolver.set(call.token, () => url + call.suffix);
           }
           break;
         }
@@ -275,7 +326,7 @@ export function createPlainAssetRegistry({
           for (const call of entry.calls) {
             tokenToResolver.set(call.token, (outPath) => {
               const pageOutDir = path.posix.dirname(outPath);
-              return path.posix.relative(pageOutDir, assetOutAbs);
+              return path.posix.relative(pageOutDir, assetOutAbs) + call.suffix;
             });
           }
           break;

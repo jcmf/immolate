@@ -56,9 +56,15 @@ function computeOutPath(mm, segments, outputDir, pageLabel) {
   return path.posix.join(outputDir, op);
 }
 
-function renderTree(mm, segments, outputDir, assetsDirAbs, pages, seen) {
+function renderTree(mm, segments, outputDir, topDir, assetsDirAbs, pages, seen) {
   const page = segments.length ? segments.join('/') : '/';
   const outPath = computeOutPath(mm, segments, outputDir, page);
+  // Source-tree position of this page, used by the plain-asset registry to map
+  // <a href="./other.md"> link targets onto their rendered output paths.
+  const srcPath =
+    mm.__xtatic_path != null
+      ? path.posix.join(topDir, mm.__xtatic_path)
+      : null;
   if (isInsideOrSame(assetsDirAbs, outPath)) {
     throw new Error(
       `Page "${page}" writes to "${outPath}", which is inside the generated assets directory "${assetsDirAbs}". ` +
@@ -82,9 +88,9 @@ function renderTree(mm, segments, outputDir, assetsDirAbs, pages, seen) {
       }
     },
   );
-  pages.push({ outPath, html });
+  pages.push({ outPath, srcPath, html });
   for (const child of mm.childPages) {
-    renderTree(child, [...segments, child.name], outputDir, assetsDirAbs, pages, seen);
+    renderTree(child, [...segments, child.name], outputDir, topDir, assetsDirAbs, pages, seen);
   }
 }
 
@@ -244,7 +250,7 @@ async function buildImpl({
     });
   }
   const pages = [];
-  renderTree(root, [], outputDir, assetsDirAbs, pages, new Map());
+  renderTree(root, [], outputDir, topDir, assetsDirAbs, pages, new Map());
   const imageSubstitute = await imageRegistry.processAll();
   const styleSubstitute = await styleRegistry.processAll();
   // Plain-asset runs before font so the font registry can ask

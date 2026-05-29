@@ -56,6 +56,8 @@ const DEFAULT_TAG_RULES = {
   audio: ['src'],
   video: ['src', 'poster'],
   link: { attrs: ['href'], predicate: linkRelIsAsset, getKind: linkKind },
+  a: ['href'],
+  area: ['href'],
 };
 
 function normalizeRule(rule) {

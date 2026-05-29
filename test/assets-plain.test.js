@@ -438,6 +438,111 @@ test('respects assetInlineThreshold config', async () => {
   assert.doesNotMatch(html, /data:image/);
 });
 
+// ---- <a href> / <area href> page-link rewriting ----
+
+test('plain <a href> to another page rewrites to its output URL', async () => {
+  const fs = makeFs({
+    '/in/index.md': '<a href="./about.md">About</a>\n',
+    '/in/about.md': '# About\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<a href="about\/">About<\/a>/);
+});
+
+test('markdown link syntax to another page is rewritten', async () => {
+  const fs = makeFs({
+    '/in/index.md': '[About](./about.md)\n',
+    '/in/about.md': '# About\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<a href="about\/">About<\/a>/);
+});
+
+test('a /-rooted link from a nested page resolves relative to the page', async () => {
+  const fs = makeFs({
+    '/in/index.md': 'root\n',
+    '/in/blog/index.md': 'blog\n',
+    '/in/blog/post.md': '<a href="/index.md">Home</a>\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', topDir: '/in', fs });
+  const html = await fs.promises.readFile('/out/blog/post/index.html', 'utf8');
+  // /out/blog/post/index.html → /out/index.html  ⇒ ../../
+  assert.match(html, /<a href="\.\.\/\.\.\/">Home<\/a>/);
+});
+
+test('a link between sibling pages resolves relatively', async () => {
+  const fs = makeFs({
+    '/in/index.md': 'root\n',
+    '/in/a.md': '<a href="./b.md">to b</a>\n',
+    '/in/b.md': 'b\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/a/index.html', 'utf8');
+  // Source siblings a.md/b.md, but each renders to its own dir, so the
+  // output link is ../b/ — the input→output path translation this provides.
+  assert.match(html, /<a href="\.\.\/b\/">to b<\/a>/);
+});
+
+test('a link fragment is preserved through rewriting', async () => {
+  const fs = makeFs({
+    '/in/index.md': '<a href="./about.md#install">Install</a>\n',
+    '/in/about.md': '# About\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<a href="about\/#install">Install<\/a>/);
+});
+
+test('a link to a non-page file is copied like an asset', async () => {
+  const fs = makeFs({
+    '/in/index.md': '<a href="./report.pdf">Download</a>\n',
+  });
+  await fs.promises.writeFile('/in/report.pdf', bytes(8192));
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<a href="report\.pdf">Download<\/a>/);
+  const stat = await fs.promises.stat('/out/report.pdf');
+  assert.equal(stat.size, 8192);
+});
+
+test('a link to an outputPath-override page links the real file', async () => {
+  const fs = makeFs({
+    '/in/index.md': '<a href="./feed.md">Feed</a>\n',
+    '/in/feed.md':
+      '---\noutputPath: /feed.xml\nlayout: null\n---\n\n<rss></rss>\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<a href="feed\.xml">Feed<\/a>/);
+});
+
+test('passthrough hrefs (mailto, http, anchors) are left untouched', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      '<a href="mailto:x@y.z">mail</a>\n\n' +
+      '<a href="https://example.com">ext</a>\n\n' +
+      '<a href="#top">top</a>\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /href="mailto:x@y\.z"/);
+  assert.match(html, /href="https:\/\/example\.com"/);
+  assert.match(html, /href="#top"/);
+});
+
+test('plain <area href> to another page is rewritten', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      '<map><area href="./about.md" shape="rect" /></map>\n',
+    '/in/about.md': '# About\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<area href="about\/"/);
+});
+
 // ---- cssForPage seam (consumed by the font-cascade engine in commit 3+) ----
 
 // Builds a registry, runs an `asset(value, opts)` call, scans the resulting
