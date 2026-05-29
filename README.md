@@ -173,6 +173,49 @@ Named (`import { a, b } from ...`) and namespace (`import * as X from ...`) impo
 
 Imports with bare specifiers (`import x from 'react'`), unknown extensions, or paths that escape `INPUT_DIR` are not formally supported and may fail or behave unexpectedly.
 
+## Asset references
+
+Plain HTML tags that point at a file get their reference auto-processed at build time. The referenced file is read, content-hashed, and either inlined as a `data:` URL, written alongside the page that uses it, or written to a shared `OUTPUT_DIR/_assets/<hash>.<ext>` — with the rendered URL rewritten to match. This works without any explicit `<Image>`/`<Style>` builtin; markdown's `![alt](src)` (which lowers to `<img>`) is covered too.
+
+```mdx
+![Sunset](./hero.jpg)
+<img src="./icon.svg" alt="" />
+<link rel="stylesheet" href="/css/site.css" />
+<link rel="icon" href="/favicon.png" />
+<script src="./main.js"></script>
+<video src="./clip.mp4" poster="./clip-poster.jpg" />
+```
+
+The whitelisted (tag, attribute) pairs are:
+
+- `img.src`, `script.src`, `source.src`, `audio.src`, `video.src`, `video.poster`
+- `link.href` — only when `rel` is `stylesheet`, `icon`, `shortcut`, `apple-touch-icon`(`-precomposed`), `mask-icon`, `preload`, `prefetch`, `modulepreload`, or `manifest`. Other rels (`canonical`, `alternate`, …) are left untouched since their hrefs aren't file references.
+
+Values that aren't files — `data:`, `http(s):`, `//`, `#`, `mailto:`, `tel:`, and empty strings — pass through verbatim, so a `<link rel="stylesheet" href="https://…">` to a CDN is unchanged. Dynamic values like `<img src={x}>` are wrapped at runtime, so the same passthrough applies after evaluation.
+
+Path resolution matches `<Image>`/`<Style>`/`readfile`: a leading `/` is rooted at `TOP_DIR`; everything else is relative to the importing file's directory.
+
+**Placement chooser.** For each referenced file:
+
+1. ≤ **4096 bytes** → inlined as a `data:` URL.
+2. Used by exactly one page, *and* the source sits inside that page's output directory → co-located (copied alongside the page, mirroring its source-tree position).
+3. Otherwise → shared at `OUTPUT_DIR/_assets/<hash>.<ext>`.
+
+The inline threshold is configurable project-wide via `package.json` `xtatic.assetInlineThreshold`. Shared assets share `_assets/` with `<Image>`/`<Style>`/`<Font>` output and are content-addressed, so the same file referenced from many pages (or many tags) writes once. All rendered URLs are page-relative, so the site works served from any subpath.
+
+Override the chooser per call with `data-xtatic-placement`:
+
+```mdx
+<img src="./tiny.png" alt="" data-xtatic-placement="shared" />
+<img src="./huge.jpg" alt="" data-xtatic-placement="inline" />
+```
+
+Valid values are `"auto"` (default), `"inline"`, `"shared"`, and `"co-located"`. The attribute is stripped from the output. Requesting `co-located` for a file whose source isn't at-or-below a consuming page's output directory is a build error.
+
+**Inlined stylesheets.** When a `<link rel="stylesheet" href="…">` resolves to an inlined `.css` file, the whole `<link>` is replaced with a `<style>` block (rather than a `data:text/css` URL), and the CSS's own `url(...)` references are rewritten through the same pass as `<Style>`. Attributes other than `rel`/`href` (`media`, `nonce`, `class`, …) carry over. A `.css` file referenced from a non-stylesheet rel (e.g. `rel="preload" as="style"`) still gets the regular `data:` treatment.
+
+**When to reach for the explicit builtins instead.** `<img>` ships the source file as-is, so use [`<Image>`](#image) when you want sharp-driven resizing, format conversion, or dimension stamping. `<link rel="stylesheet">` rewrites `url(...)` references but doesn't get you anything else `<Style>` does — they're broadly equivalent for hand-written CSS.
+
 ## Builtins
 
 A small set of helpers ship with xtatic. Like Node's `node:*` modules, they're exposed under an `xtatic:` scheme and must be imported explicitly:
