@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { html as htmlBuiltin, makeReadfile } from './builtins.js';
+import { html as htmlBuiltin, makePageHref, makeReadfile } from './builtins.js';
 import { BUILTIN_SPECS } from './builtins-registry.js';
 import { compileJsxSource } from './compile-jsx.js';
 import { compileSource } from './compile.js';
@@ -150,6 +150,9 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
     return async function resolve(spec) {
       if (spec.startsWith('xtatic:')) {
         if (spec === 'xtatic:builtins') {
+          const asset = plainAssetRegistry
+            ? plainAssetRegistry.forImporter(importerAbsPath)
+            : (value) => value;
           return {
             html: htmlBuiltin,
             readfile: makeReadfile({
@@ -158,9 +161,11 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
               importerAbsPath,
               importerDisplay: displayPath(importerAbsPath),
             }),
-            asset: plainAssetRegistry
-              ? plainAssetRegistry.forImporter(importerAbsPath)
-              : (value) => value,
+            asset,
+            pageHref: makePageHref({
+              asset,
+              importerDisplay: displayPath(importerAbsPath),
+            }),
           };
         }
         if (spec === 'xtatic:image') {

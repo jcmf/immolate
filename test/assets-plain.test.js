@@ -543,6 +543,60 @@ test('plain <area href> to another page is rewritten', async () => {
   assert.match(html, /<area href="about\/"/);
 });
 
+// ---- pageHref builtin (linking to pages, e.g. iterating childPages) ----
+
+test('pageHref links each childPages entry to its output URL', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      "import {pageHref} from 'xtatic:builtins';\n\n" +
+      '{childPages.map(p => <a href={pageHref(p)}>{p.name}</a>)}\n',
+    '/in/a.md': '# A\n',
+    '/in/b.md': '# B\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<a href="a\/">a<\/a>/);
+  assert.match(html, /<a href="b\/">b<\/a>/);
+});
+
+test('pageHref resolves relative to the linking page when nested', async () => {
+  const fs = makeFs({
+    '/in/index.md': 'root\n',
+    '/in/blog/index.md':
+      "import {pageHref} from 'xtatic:builtins';\n\n" +
+      '{childPages.map(p => <a href={pageHref(p)}>{p.name}</a>)}\n',
+    '/in/blog/first.md': '# First\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/blog/index.html', 'utf8');
+  // /out/blog/index.html → /out/blog/first/index.html ⇒ first/
+  assert.match(html, /<a href="first\/">first<\/a>/);
+});
+
+test('pageHref returns a token that resolves outside whitelisted attrs', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      "import {pageHref} from 'xtatic:builtins';\n\n" +
+      '<span data-url={pageHref(childPages[0])} />\n',
+    '/in/a.md': '# A\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /data-url="a\/"/);
+});
+
+test('pageHref throws a clear error for a non-page argument', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      "import {pageHref} from 'xtatic:builtins';\n\n" +
+      '{pageHref("not a page")}\n',
+  });
+  await assert.rejects(
+    build({ inputDir: '/in', outputDir: '/out', fs }),
+    /pageHref: expected a page module/,
+  );
+});
+
 // ---- cssForPage seam (consumed by the font-cascade engine in commit 3+) ----
 
 // Builds a registry, runs an `asset(value, opts)` call, scans the resulting

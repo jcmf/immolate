@@ -246,6 +246,16 @@ Available named exports:
 
 - `html(s)` — wrap a string so the JSX runtime emits it raw, without HTML-escaping. Useful for doctypes, inline SVG, or any time you've already got trusted markup.
 - `readfile(spec)` — synchronously read a file as UTF-8 at build time. Specs starting with `/` resolve against `TOP_DIR`; everything else resolves against the importing file's directory. Throws a clear error if the file is missing.
+- `asset(value, opts?)` — the same function the auto-processing wires onto whitelisted attributes (see [Asset references](#asset-references)). Call it directly for attributes/expressions the whitelist doesn't cover — e.g. `<a href={asset('./report.pdf')}>`. `opts.placement` (`"auto"`/`"inline"`/`"shared"`/`"co-located"`) overrides the chooser. Returns a rewritten URL (a deferred token resolved at the end of the build).
+- `pageHref(page)` — given a **page module** (an entry of `childPages`, or anything reached via `import`), return a relative link to that page's rendered output. Resolves to a clean directory URL relative to the linking page, with `outputPath` overrides honored. Because it returns the same kind of deferred token as `asset`, it resolves wherever it lands — `<a href={pageHref(p)}>`, a custom component prop, even bare text:
+
+  ```mdx
+  import {pageHref} from 'xtatic:builtins';
+
+  <ul>
+    {childPages.map(p => <li><a href={pageHref(p)}>{p.title}</a></li>)}
+  </ul>
+  ```
 
 Importing from `xtatic:builtins` works identically in `.md`, `.mdx`, and `.jsx` files. Names you don't import don't shadow anything, so you're free to define a local `html` or `readfile` of your own.
 
