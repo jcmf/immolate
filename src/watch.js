@@ -36,7 +36,10 @@ export async function watch({ buildOptions, debounceMs = 100 }) {
       log(color('green', `built in ${Date.now() - start}ms`));
     } catch (e) {
       state.error = e;
-      warn(color('red', `build failed: ${e.message}`));
+      // Color only the label, not the message: e.message carries its own ANSI
+      // (the render-context trace's code frames), and wrapping the whole thing
+      // in red breaks at the first embedded reset, leaving the tail uncolored.
+      warn(`${color('red', 'build failed:')} ${e.message}`);
       if (process.env.XTATIC_DEBUG) console.error(e.stack);
     } finally {
       building = false;
