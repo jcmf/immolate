@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { html as htmlBuiltin, makePageHref, makeReadfile } from './builtins.js';
+import { html as htmlBuiltin, makeReadfile } from './builtins.js';
 import { BUILTIN_SPECS } from './builtins-registry.js';
 import { compileJsxSource } from './compile-jsx.js';
 import { compileSource } from './compile.js';
@@ -81,6 +81,31 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
     return rel && !rel.startsWith('..') ? rel : absPath;
   }
 
+  // Define `mm.url`: a deferred, page-relative link to this module's own
+  // rendered output — the same kind of token `asset('/<path>')` produces, so
+  // the page-link rewriting (clean dir URLs, outputPath overrides,
+  // per-landing-page relative resolution) applies. Lazy via a getter, so a
+  // token is only minted (and recorded for the substitute pass) when something
+  // actually reads `.url`. Tool-owned: defined after Object.assign so it
+  // clobbers any user export named `url` (an override would just defeat the
+  // rewrite). Mirrors how `name`/`childPages` are tool-derived.
+  function stampUrl(mm, importerAbsPath, displayP) {
+    let token;
+    Object.defineProperty(mm, 'url', {
+      enumerable: true,
+      configurable: true,
+      get() {
+        if (token === undefined) {
+          const asset = plainAssetRegistry
+            ? plainAssetRegistry.forImporter(importerAbsPath)
+            : (v) => v;
+          token = asset(`/${displayP}`);
+        }
+        return token;
+      },
+    });
+  }
+
   function resolveSpec(importerAbsPath, spec) {
     if (spec.startsWith('/')) {
       return path.posix.join(topDir, spec);
@@ -116,7 +141,9 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
       throw makeCompileError(displayPath(absPath), source, e);
     }
     Object.assign(mm, compiled);
-    stampPath(mm, displayPath(absPath));
+    const dp = displayPath(absPath);
+    stampPath(mm, dp);
+    stampUrl(mm, absPath, dp);
     jsxModules.get(absPath).status = 'done';
     return mm;
   }
@@ -139,7 +166,9 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
       throw makeCompileError(displayPath(absPath), source, e);
     }
     Object.assign(mm, compiled);
-    stampPath(mm, displayPath(absPath));
+    const dp = displayPath(absPath);
+    stampPath(mm, dp);
+    stampUrl(mm, absPath, dp);
     const original = mm.default;
     mm.default = (props = {}) => original({ ...props, __xtatic_self: mm });
     mdxModules.get(absPath).status = 'done';
@@ -162,10 +191,6 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
               importerDisplay: displayPath(importerAbsPath),
             }),
             asset,
-            pageHref: makePageHref({
-              asset,
-              importerDisplay: displayPath(importerAbsPath),
-            }),
           };
         }
         if (spec === 'xtatic:image') {

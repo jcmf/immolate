@@ -543,13 +543,11 @@ test('plain <area href> to another page is rewritten', async () => {
   assert.match(html, /<area href="about\/"/);
 });
 
-// ---- pageHref builtin (linking to pages, e.g. iterating childPages) ----
+// ---- page.url property (linking to pages, e.g. iterating childPages) ----
 
-test('pageHref links each childPages entry to its output URL', async () => {
+test('page.url links each childPages entry to its output URL', async () => {
   const fs = makeFs({
-    '/in/index.md':
-      "import {pageHref} from 'xtatic:builtins';\n\n" +
-      '{childPages.map(p => <a href={pageHref(p)}>{p.name}</a>)}\n',
+    '/in/index.md': '{childPages.map(p => <a href={p.url}>{p.name}</a>)}\n',
     '/in/a.md': '# A\n',
     '/in/b.md': '# B\n',
   });
@@ -559,12 +557,10 @@ test('pageHref links each childPages entry to its output URL', async () => {
   assert.match(html, /<a href="b\/">b<\/a>/);
 });
 
-test('pageHref resolves relative to the linking page when nested', async () => {
+test('page.url resolves relative to the linking page when nested', async () => {
   const fs = makeFs({
     '/in/index.md': 'root\n',
-    '/in/blog/index.md':
-      "import {pageHref} from 'xtatic:builtins';\n\n" +
-      '{childPages.map(p => <a href={pageHref(p)}>{p.name}</a>)}\n',
+    '/in/blog/index.md': '{childPages.map(p => <a href={p.url}>{p.name}</a>)}\n',
     '/in/blog/first.md': '# First\n',
   });
   await build({ inputDir: '/in', outputDir: '/out', fs });
@@ -573,11 +569,9 @@ test('pageHref resolves relative to the linking page when nested', async () => {
   assert.match(html, /<a href="first\/">first<\/a>/);
 });
 
-test('pageHref returns a token that resolves outside whitelisted attrs', async () => {
+test('page.url is a token that resolves outside whitelisted attrs', async () => {
   const fs = makeFs({
-    '/in/index.md':
-      "import {pageHref} from 'xtatic:builtins';\n\n" +
-      '<span data-url={pageHref(childPages[0])} />\n',
+    '/in/index.md': '<span data-url={childPages[0].url} />\n',
     '/in/a.md': '# A\n',
   });
   await build({ inputDir: '/in', outputDir: '/out', fs });
@@ -585,16 +579,26 @@ test('pageHref returns a token that resolves outside whitelisted attrs', async (
   assert.match(html, /data-url="a\/"/);
 });
 
-test('pageHref throws a clear error for a non-page argument', async () => {
+test('page.url honors outputPath overrides on the target page', async () => {
   const fs = makeFs({
-    '/in/index.md':
-      "import {pageHref} from 'xtatic:builtins';\n\n" +
-      '{pageHref("not a page")}\n',
+    '/in/index.md': '{childPages.map(p => <a href={p.url}>{p.name}</a>)}\n',
+    '/in/feed.md':
+      "export const outputPath = '/feed.xml';\n\n# Feed\n",
   });
-  await assert.rejects(
-    build({ inputDir: '/in', outputDir: '/out', fs }),
-    /pageHref: expected a page module/,
-  );
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<a href="feed\.xml">feed<\/a>/);
+});
+
+test('a page can self-link via the bare url identifier', async () => {
+  const fs = makeFs({
+    '/in/index.md': 'root\n',
+    '/in/about.md': '<a href={url}>self</a>\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/about/index.html', 'utf8');
+  // about/index.html linking to itself ⇒ ./
+  assert.match(html, /<a href="\.\/">self<\/a>/);
 });
 
 // ---- cssForPage seam (consumed by the font-cascade engine in commit 3+) ----

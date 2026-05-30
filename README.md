@@ -140,9 +140,16 @@ After compilation, every page is a module object exposing:
 - `childPages` — `Array` of child modules sorted by `name`
 - `layout` — the page's layout module (inherited or explicitly set; may be `undefined`)
 - `name` — the module's last path segment (set on every module that's a child of another; the root has no `name`)
+- `url` — a link to this page's rendered output. The natural way to link a `childPages` entry: `<a href={p.url}>`. It resolves to a clean directory URL relative to whatever page the link lands on, with `outputPath` overrides honored (`feed.xml` rather than `feed/`). Because it's the same kind of deferred token [`asset`](#builtins) returns, it works wherever it lands — a whitelisted attribute, a custom component prop, even bare text. Tool-owned: exporting your own `url` is overridden.
 - frontmatter keys + any named exports
 
-`childPages` is a plain JavaScript array, so `mm.childPages.map(...)`, `.find(...)`, `.length`, and `for (const child of mm.childPages) { ... }` all work directly.
+`childPages` is a plain JavaScript array, so `mm.childPages.map(...)`, `.find(...)`, `.length`, and `for (const child of mm.childPages) { ... }` all work directly. Linking the children is just:
+
+```mdx
+<ul>
+  {childPages.map((p) => <li><a href={p.url}>{p.title}</a></li>)}
+</ul>
+```
 
 ## Custom components
 
@@ -209,6 +216,8 @@ Because each page renders to its own `dir/index.html`, the input→output path d
 
 A relative or `/`-rooted href that points at a **non-page** file (`./report.pdf`, `./photo.jpg`, …) falls through to the normal asset pipeline — it's content-hashed and copied/inlined like any other asset. Markdown link syntax `[text](./about.md)` (which lowers to `<a>`) is covered too. Passthrough values (`mailto:`, `tel:`, `http(s):`, `#anchor`, …) are left untouched.
 
+When you already hold a page *module* rather than a path string — e.g. iterating `childPages` — link it through its [`url` property](#the-module-tree) (`<a href={p.url}>`) instead. It produces the same rewritten output URL.
+
 **Placement chooser.** For each referenced file:
 
 1. ≤ **4096 bytes** → inlined as a `data:` URL.
@@ -247,15 +256,8 @@ Available named exports:
 - `html(s)` — wrap a string so the JSX runtime emits it raw, without HTML-escaping. Useful for doctypes, inline SVG, or any time you've already got trusted markup.
 - `readfile(spec)` — synchronously read a file as UTF-8 at build time. Specs starting with `/` resolve against `TOP_DIR`; everything else resolves against the importing file's directory. Throws a clear error if the file is missing.
 - `asset(value, opts?)` — the same function the auto-processing wires onto whitelisted attributes (see [Asset references](#asset-references)). Call it directly for attributes/expressions the whitelist doesn't cover — e.g. `<a href={asset('./report.pdf')}>`. `opts.placement` (`"auto"`/`"inline"`/`"shared"`/`"co-located"`) overrides the chooser. Returns a rewritten URL (a deferred token resolved at the end of the build).
-- `pageHref(page)` — given a **page module** (an entry of `childPages`, or anything reached via `import`), return a relative link to that page's rendered output. Resolves to a clean directory URL relative to the linking page, with `outputPath` overrides honored. Because it returns the same kind of deferred token as `asset`, it resolves wherever it lands — `<a href={pageHref(p)}>`, a custom component prop, even bare text:
 
-  ```mdx
-  import {pageHref} from 'xtatic:builtins';
-
-  <ul>
-    {childPages.map(p => <li><a href={pageHref(p)}>{p.title}</a></li>)}
-  </ul>
-  ```
+To link to another *page*, you don't need a builtin — read its [`url` property](#the-module-tree) (`<a href={p.url}>`), which goes through the same machinery.
 
 Importing from `xtatic:builtins` works identically in `.md`, `.mdx`, and `.jsx` files. Names you don't import don't shadow anything, so you're free to define a local `html` or `readfile` of your own.
 
