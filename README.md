@@ -414,6 +414,21 @@ When enabled, the first time a build needs a missing peer dep, xtatic shells out
 
 Parse errors print a source-code frame pointing at the offending spot. When color is available (a TTY, or the dev server's browser error page), the bad characters are highlighted inline on the source line; otherwise (piped output, CI) a `^` caret is drawn on the line below. Long lines are windowed around the error — clipped to **120 columns** with `…` markers — so the highlight stays on screen instead of scrolling off. Set `xtatic.codeFrameWidth` in `package.json` to change that width, or `0` to disable windowing and always show the full line:
 
+The same code frame is shown for **render-time** errors. When a `<Component/>`, an imported page, or an asset (`<img>`, `<Image>`, `<Font>`, `<a href>`, …) fails during the build, xtatic prints a trace of the page → layout → component chain that led there, and under each call site that has a known location it shows the offending source line:
+
+```
+<Image>: source not found at /site/layouts/missing.png
+
+  in <Image> at layouts/base.mdx:5:1
+      4 | <html><body>
+    > 5 | <Image src='./missing.png' alt='x' />
+        | ^
+      6 | {props.children}
+  in layout layouts/base.mdx
+  while building page /
+```
+
+
 ```json
 {
   "xtatic": {

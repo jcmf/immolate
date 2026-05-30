@@ -140,6 +140,31 @@ function assertSafeOutputDir(outputDir, sources) {
   }
 }
 
+// Read a source file named by a render-context frame (a topDir-relative display
+// path, or an absolute path for sources outside topDir) so formatContext can
+// print its code frame. Sync (formatContext is sync), best-effort (a missing or
+// unreadable file just means no frame), and memoized since a trace can name the
+// same file twice.
+function makeSourceReader(fs, topDir) {
+  if (!fs || typeof fs.readFileSync !== 'function') return () => null;
+  const cache = new Map();
+  return (file) => {
+    if (!file) return null;
+    if (cache.has(file)) return cache.get(file);
+    let text = null;
+    try {
+      const abs = path.posix.isAbsolute(file)
+        ? file
+        : path.posix.join(topDir, file);
+      text = fs.readFileSync(abs, 'utf8');
+    } catch {
+      text = null;
+    }
+    cache.set(file, text);
+    return text;
+  };
+}
+
 export async function build(options) {
   try {
     return await buildImpl(options);
@@ -153,7 +178,14 @@ export async function build(options) {
       err.xtaticContext &&
       !err.xtaticContextRendered
     ) {
-      const ctx = formatContext(err.xtaticContext);
+      const topDir =
+        options.topDir != null
+          ? path.posix.resolve(options.topDir)
+          : path.posix.resolve(options.inputDir);
+      const ctx = formatContext(err.xtaticContext, {
+        readSource: makeSourceReader(options.fs, topDir),
+        codeFrameWidth: options.codeFrameWidth ?? 120,
+      });
       if (ctx) {
         err.message = `${err.message}\n\n${ctx}`;
         err.xtaticContextRendered = true;

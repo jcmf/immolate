@@ -166,6 +166,46 @@ test('a synchronous component error in a layout gets the same render-context tra
   );
 });
 
+test('a render error shows the offending source line under its frame', async () => {
+  const fs = makeFs({
+    '/top/pages/index.md': '---\ntitle: Home\nlayout: base\n---\n# Home\n',
+    '/top/layouts/base.mdx':
+      "import {Image} from 'xtatic:image';\n\n" +
+      '<html><body>\n\n' +
+      "<Image src='./missing.png' alt='x' />\n\n" +
+      '{props.children}\n\n</body></html>\n',
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/top/pages', outputDir: '/out', topDir: '/top', fs }),
+    (e) => {
+      assert.match(e.message, /\n {2}in <Image> at layouts\/base\.mdx:5:1/);
+      // The code frame (indented under the frame) shows the real source line,
+      // not just file:line:column.
+      assert.match(
+        e.message,
+        /\n {4}> 5 \| <Image src='\.\/missing\.png' alt='x' \/>/,
+      );
+      // Caret row marks the column (no-color test env).
+      assert.match(e.message, /\n {4} +\| \^/);
+      return true;
+    },
+  );
+});
+
+test('a markdown image error shows the markdown source line', async () => {
+  const fs = makeFs({
+    '/top/pages/index.md': '---\ntitle: Home\n---\n# Home\n\n![alt](./pic.png)\n',
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/top/pages', outputDir: '/out', topDir: '/top', fs }),
+    (e) => {
+      assert.match(e.message, /\n {2}in <img> at pages\/index\.md:6:1/);
+      assert.match(e.message, /\n {4}> 6 \| !\[alt\]\(\.\/pic\.png\)/);
+      return true;
+    },
+  );
+});
+
 test('defaultLayout on the root applies to the root and all descendants', async () => {
   const fs = makeFs({
     '/top/pages/index.md':

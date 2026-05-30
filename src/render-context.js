@@ -12,6 +12,8 @@
 // stack is attached at throw time (see jsxDEV / renderModule), so the deepest
 // frame wins.
 
+import { renderCodeFrame } from './code-frame.js';
+
 const stack = [];
 
 export function pushFrame(frame) {
@@ -83,13 +85,45 @@ function fmtFrame(frame) {
   }
 }
 
+// The display path / line a frame points at, or null if it has no call site.
+// `module`/`component` frames carry the call site (where the `<Tag/>` was
+// written) in atFile/atLine/atColumn; `page`/`layout` frames have no line.
+function frameLoc(frame) {
+  if (frame.atFile && frame.atLine != null) {
+    return { file: frame.atFile, line: frame.atLine, column: frame.atColumn };
+  }
+  return null;
+}
+
 // Render a captured stack as indented lines, deepest first (like a JS stack
-// trace). Returns '' for an empty/missing stack.
-export function formatContext(frames) {
+// trace). Returns '' for an empty/missing stack. When `readSource(displayPath)`
+// is supplied (build() wires it to the build's fs), each frame that carries a
+// source location gets a code frame showing the offending line, indented under
+// it — the same frame the lint phase prints (shared via code-frame.js), so a
+// render error points at the exact source line, not just `file:line:column`.
+export function formatContext(frames, { readSource, codeFrameWidth } = {}) {
   if (!frames || frames.length === 0) return '';
   const lines = [];
   for (let i = frames.length - 1; i >= 0; i--) {
-    lines.push(`  ${fmtFrame(frames[i])}`);
+    const frame = frames[i];
+    lines.push(`  ${fmtFrame(frame)}`);
+    const loc = frameLoc(frame);
+    if (readSource && loc) {
+      const source = readSource(loc.file);
+      if (source != null) {
+        const codeFrame = renderCodeFrame(
+          source,
+          loc.line,
+          loc.column,
+          null,
+          null,
+          codeFrameWidth,
+        );
+        if (codeFrame) {
+          for (const fl of codeFrame.split('\n')) lines.push(`    ${fl}`);
+        }
+      }
+    }
   }
   return lines.join('\n');
 }
