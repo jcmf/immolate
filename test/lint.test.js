@@ -309,3 +309,34 @@ test('lint catches builtin misuse in a .jsx component', () => {
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /"xtatic:image" has no default export/);
 });
+
+test('a page generator ({placeholder} filename) lints clean and builds', () => {
+  const top = setupTopDir('generator-clean', {
+    'pages/index.mdx': '# Home\n',
+    'pages/tag-{tag}.md':
+      "export const pages = [{ tag: 'rust' }, { tag: 'js' }]\n\n# Tag: {tag}\n",
+  });
+  const r = runCli(top);
+  assert.equal(r.status, 0, r.stderr);
+  // Confirm the build actually ran the expansion end-to-end on real fs.
+  const html = nodeFs.readFileSync(
+    path.join(top, 'site', 'tag-rust', 'index.html'),
+    'utf8',
+  );
+  assert.match(html, /Tag: rust/);
+});
+
+test('lint inspects generator files: a broken import is caught', () => {
+  // Proves the {curly}-named file isn't silently skipped by ESLint's
+  // glob-pattern matching — the bad import inside it fails lint.
+  const top = setupTopDir('generator-bad-import', {
+    'pages/index.mdx': '# Home\n',
+    'pages/tag-{tag}.md':
+      "import X from './missing.mdx';\n\n" +
+      "export const pages = [{ tag: 'a' }]\n\n# {tag}\n",
+  });
+  const r = runCli(top);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /Lint failed/);
+  assert.match(r.stderr, /missing\.mdx/);
+});

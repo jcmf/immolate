@@ -4,7 +4,7 @@ import { createPlainAssetRegistry } from './assets-plain.js';
 import { createFontRegistry } from './font.js';
 import { createImageRegistry } from './image.js';
 import { createStyleRegistry } from './style.js';
-import { resolveLogicalPaths } from './paths.js';
+import { resolveLogicalPath, hasPlaceholders } from './paths.js';
 import { assembleTree } from './tree.js';
 import { renderModule } from './render.js';
 import { attachContext, formatContext, withFrame } from './render-context.js';
@@ -110,6 +110,37 @@ function isInsideOrSame(parent, child) {
   if (parent === child) return true;
   const sep = parent.endsWith('/') ? parent : `${parent}/`;
   return child.startsWith(sep);
+}
+
+// Reject two entries (ordinary or generator-produced) that resolve to the same
+// logical path. Mirrors resolveLogicalPaths' check but spans the merged set;
+// generator-produced entries carry an `origin` ("template → substituted") for a
+// clearer message than the virtual substituted relPath alone.
+function assertUniqueLogicalPaths(entries) {
+  const claimed = new Map();
+  for (const e of entries) {
+    const key = e.segments.join('/');
+    const existing = claimed.get(key);
+    if (existing !== undefined) {
+      const label = key === '' ? '(root)' : key;
+      throw new Error(
+        `Multiple input files map to the same output path "${label}": ${existing} and ${e.origin ?? e.relPath}`,
+      );
+    }
+    claimed.set(key, e.origin ?? e.relPath);
+  }
+}
+
+// Suggest a generator filename for a file that exported `pages` without one:
+// foo.md → foo-{slug}.md, blog/post.mdx → blog/post-{slug}.mdx.
+function placeholderHint(relPath) {
+  const slash = relPath.lastIndexOf('/');
+  const dir = slash === -1 ? '' : relPath.slice(0, slash + 1);
+  const file = slash === -1 ? relPath : relPath.slice(slash + 1);
+  const dot = file.lastIndexOf('.');
+  const base = dot === -1 ? file : file.slice(0, dot);
+  const ext = dot === -1 ? '' : file.slice(dot);
+  return `${dir}${base}-{slug}${ext}`;
 }
 
 function assertValidAssetsDir(assetsDir) {
@@ -223,11 +254,19 @@ async function buildImpl({
   fs = wrapZipFs(fs);
   await fs.promises.rm(outputDir, { recursive: true, force: true });
   const files = await walkMdx(fs, inputDir);
-  const entries = resolveLogicalPaths(files.map((f) => f.relPath));
-  entries.sort((a, b) =>
-    a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0,
-  );
-  const absByRel = new Map(files.map((f) => [f.relPath, f.absPath]));
+  // Page generators are files whose name carries `{placeholder}` tokens (e.g.
+  // tag-{tag}.md); they expand into one page per `pages` item instead of
+  // rendering at their own slot. Everything else is an ordinary page.
+  const templateFiles = [];
+  const normalFiles = [];
+  for (const f of files) {
+    (hasPlaceholders(f.relPath) ? templateFiles : normalFiles).push(f);
+  }
+  const entries = normalFiles.map((f) => ({
+    relPath: f.relPath,
+    segments: resolveLogicalPath(f.relPath),
+    absPath: f.absPath,
+  }));
 
   const assetRegistry = createAssetRegistry({ fs, outputDir, assetsDir });
   const imageRegistry = createImageRegistry({
@@ -269,9 +308,31 @@ async function buildImpl({
     plainAssetRegistry,
   });
   for (const entry of entries) {
-    entry.absPath = absByRel.get(entry.relPath);
     entry.mm = await registry.loadMdx(entry.absPath);
   }
+  // A file that exports `pages` but isn't a generator (no {placeholder} in its
+  // name) would silently render once and drop the export — surface it instead.
+  for (const entry of entries) {
+    if (entry.mm.pages !== undefined) {
+      throw new Error(
+        `"${entry.relPath}" exports \`pages\` but its filename has no {placeholder}; ` +
+          `rename it (e.g. ${placeholderHint(entry.relPath)}) to generate multiple pages from it.`,
+      );
+    }
+  }
+  // Expand each generator into its synthetic child pages, then fold them into
+  // the entry set so they flow through tree assembly and rendering as usual.
+  const toRelPath = (abs) => path.posix.relative(inputDir, abs);
+  for (const f of templateFiles) {
+    const tmplMm = await registry.loadMdx(f.absPath);
+    for (const e of registry.expandTemplate(tmplMm, f.absPath, { toRelPath })) {
+      entries.push(e);
+    }
+  }
+  assertUniqueLogicalPaths(entries);
+  entries.sort((a, b) =>
+    a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0,
+  );
   const root = assembleTree(entries, { inputDir });
   for (const entry of entries) {
     await resolveLayoutChain(entry.mm, {

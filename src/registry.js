@@ -4,6 +4,7 @@ import { html as htmlBuiltin, makeReadfile } from './builtins.js';
 import { BUILTIN_SPECS } from './builtins-registry.js';
 import { compileJsxSource } from './compile-jsx.js';
 import { compileSource } from './compile.js';
+import { resolveLogicalPath, substituteFilename } from './paths.js';
 
 const MDX_EXT_RE = /\.mdx?$/;
 const JSX_EXT_RE = /\.jsx$/;
@@ -71,10 +72,28 @@ export function isJs(absPath) {
   return JS_EXT_RE.test(absPath);
 }
 
+// Keys never inherited by a generated page from its template: tool-derived /
+// positional (`name`, `childPages`, `url`), the trigger export (`pages`), the
+// render entry point (`default`, rebound per child), and `outputPath` (which
+// must be per-item or every child would write to the same file).
+const GENERATED_INHERIT_EXCLUDE = new Set([
+  'name',
+  'childPages',
+  'url',
+  'pages',
+  'default',
+  'outputPath',
+]);
+
 export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, styleRegistry, fontRegistry, plainAssetRegistry }) {
   const mdxModules = new Map();
   const jsxModules = new Map();
   const jsModules = new Map();
+  // The compiled, pre-self-injection default for each loaded .md/.mdx module,
+  // keyed by absPath. `loadMdx` wraps `mm.default` to inject `__xtatic_self: mm`;
+  // a page generator needs the unwrapped function so each synthetic child can
+  // render the same body with its OWN `__xtatic_self` (see expandTemplate).
+  const rawDefaults = new Map();
 
   function displayPath(absPath) {
     const rel = path.posix.relative(topDir, absPath);
@@ -170,9 +189,86 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
     stampPath(mm, dp);
     stampUrl(mm, absPath, dp);
     const original = mm.default;
+    rawDefaults.set(absPath, original);
     mm.default = (props = {}) => original({ ...props, __xtatic_self: mm });
     mdxModules.get(absPath).status = 'done';
     return mm;
+  }
+
+  // Expand a page generator (a loaded .md/.mdx module that exports `pages`,
+  // named with `{placeholder}` tokens) into one synthetic child module per
+  // `pages` item. Each child is a normal module object so it flows through the
+  // rest of the pipeline (tree placement, name/title/date defaulting, layout
+  // chain, `.url`, render-context) with no special-casing. `toRelPath` maps an
+  // absolute path back to the inputDir-relative form used for segments — only
+  // the caller (buildImpl) knows inputDir, which may differ from topDir.
+  function expandTemplate(tmplMm, tmplAbsPath, { toRelPath }) {
+    const tmplDisplay = displayPath(tmplAbsPath);
+    const items = tmplMm.pages;
+    if (!Array.isArray(items)) {
+      throw new Error(
+        `Page generator "${tmplDisplay}" must export an array \`pages\` (got ${items === undefined ? 'undefined' : typeof items}).`,
+      );
+    }
+    const original = rawDefaults.get(tmplAbsPath);
+    const filename = path.posix.basename(tmplAbsPath);
+    const dir = path.posix.dirname(tmplAbsPath);
+    const entries = [];
+    items.forEach((item, index) => {
+      if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+        const got = Array.isArray(item) ? 'array' : item === null ? 'null' : typeof item;
+        throw new Error(
+          `Page generator "${tmplDisplay}" pages[${index}] must be an object (got ${got}).`,
+        );
+      }
+      // Inherit the template's own exports as a base (so the body's bare refs to
+      // the file's own exports + `layout`/`defaultLayout` still resolve). `url`
+      // is an enumerable getter, but it's excluded, so it's skipped before being
+      // read (no token minted).
+      const child = {};
+      const inherited = new Set();
+      for (const key of Object.keys(tmplMm)) {
+        if (GENERATED_INHERIT_EXCLUDE.has(key)) continue;
+        child[key] = tmplMm[key];
+        inherited.add(key);
+      }
+      // A page item may not reuse a name the template already exports: the two
+      // sharing a key is ambiguous, and for a template-declared const the body
+      // wouldn't even reflect the item's value (it binds to the const). So it's
+      // an error, not a silent win. (Name-derived title/date defaults aren't
+      // template exports, so an item setting `title`/`date` is fine.)
+      const clashes = Object.keys(item).filter((k) => inherited.has(k));
+      if (clashes.length > 0) {
+        const list = clashes.map((k) => `"${k}"`).join(', ');
+        throw new Error(
+          `Page generator "${tmplDisplay}" pages[${index}] sets ${list}, which the template already exports. ` +
+            `A page field can't share a name with a template export — rename one (declare per-page values only in items).`,
+        );
+      }
+      Object.assign(child, item);
+      delete child.pages;
+      // Render the shared body with `__xtatic_self` pointing at THIS child, so
+      // the item's fields surface as bare identifiers ({tag}) just like any
+      // other module export.
+      child.default = (props = {}) => original({ ...props, __xtatic_self: child });
+      const subFilename = substituteFilename(filename, child, {
+        template: tmplDisplay,
+        index,
+      });
+      const childAbs = path.posix.join(dir, subFilename);
+      const childDisplay = displayPath(childAbs);
+      stampPath(child, childDisplay);
+      stampUrl(child, childAbs, childDisplay);
+      const relPath = toRelPath(childAbs);
+      entries.push({
+        relPath,
+        segments: resolveLogicalPath(relPath),
+        mm: child,
+        absPath: tmplAbsPath,
+        origin: `${tmplDisplay} → ${relPath}`,
+      });
+    });
+    return entries;
   }
 
   function makeResolver(importerAbsPath) {
@@ -232,5 +328,5 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
     };
   }
 
-  return { loadMdx, loadJsx, loadJs, mdxModules, jsxModules, jsModules, resolveSpec };
+  return { loadMdx, loadJsx, loadJs, expandTemplate, mdxModules, jsxModules, jsModules, resolveSpec };
 }
