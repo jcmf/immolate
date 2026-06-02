@@ -96,3 +96,44 @@ test('a .jsx component can import a .js helper and use it', async () => {
   });
   assert.match(html, /<b>OK<\/b>/);
 });
+
+// Bump mtime to a clearly-later time so the cache-bust query changes even on
+// filesystems with coarse mtime resolution.
+function rewrite(absPath, content) {
+  nodeFs.writeFileSync(absPath, content);
+  const later = new Date(Date.now() + 2000);
+  nodeFs.utimesSync(absPath, later, later);
+}
+
+test('reloadJs reloads an edited .js across rebuilds in the same process', async () => {
+  const { inputDir, outputDir } = setupCase('reload-js', {
+    'index.mdx': "import { msg } from './lib.js';\n\n{msg}",
+    'lib.js': "export const msg = 'first';\n",
+  });
+  const out = path.join(outputDir, 'index.html');
+
+  await build({ inputDir, outputDir, fs: nodeFs, reloadJs: true });
+  assert.match(nodeFs.readFileSync(out, 'utf8'), /first/);
+
+  rewrite(path.join(inputDir, 'lib.js'), "export const msg = 'second';\n");
+  await build({ inputDir, outputDir, fs: nodeFs, reloadJs: true });
+  const html = nodeFs.readFileSync(out, 'utf8');
+  assert.match(html, /second/);
+  assert.doesNotMatch(html, /first/);
+});
+
+test('without reloadJs, Node caches the .js by URL and serves stale content', async () => {
+  const { inputDir, outputDir } = setupCase('reload-js-stale', {
+    'index.mdx': "import { msg } from './lib.js';\n\n{msg}",
+    'lib.js': "export const msg = 'first';\n",
+  });
+  const out = path.join(outputDir, 'index.html');
+
+  await build({ inputDir, outputDir, fs: nodeFs });
+  assert.match(nodeFs.readFileSync(out, 'utf8'), /first/);
+
+  rewrite(path.join(inputDir, 'lib.js'), "export const msg = 'second';\n");
+  await build({ inputDir, outputDir, fs: nodeFs });
+  // Same import URL → Node returns the cached module, so the edit is missed.
+  assert.match(nodeFs.readFileSync(out, 'utf8'), /first/);
+});

@@ -239,6 +239,7 @@ async function buildImpl({
   autoInstall = false,
   install,
   fontSubset,
+  reloadJs = false,
   fs,
 }) {
   inputDir = path.posix.resolve(inputDir);
@@ -306,6 +307,7 @@ async function buildImpl({
     styleRegistry,
     fontRegistry,
     plainAssetRegistry,
+    reloadJs,
   });
   for (const entry of entries) {
     entry.mm = await registry.loadMdx(entry.absPath);

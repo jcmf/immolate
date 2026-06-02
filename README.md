@@ -211,7 +211,7 @@ Named (`import { a, b } from ...`) and namespace (`import * as X from ...`) impo
 
 **Cycles are allowed.** Two `.mdx` files can import each other. During compile, an importer may briefly see a partially-initialized module — but by the time anything renders, every module on the cycle is fully populated, so component references resolve correctly.
 
-**`.js` files are evaluated by Node's normal `import()`**, so they can use npm packages, Node built-ins, and relative `.js` imports of their own. They cannot import `.md`/`.mdx` (Node doesn't know how to load those).
+**`.js` files are evaluated by Node's normal `import()`**, so they can use npm packages, Node built-ins, and relative `.js` imports of their own. They cannot import `.md`/`.mdx` (Node doesn't know how to load those). In `watch`/`serve`, editing an imported `.js` triggers a rebuild that picks up the change. (A `.js` that itself imports another `.js` is the one exception: edits to that nested file won't reload on their own — save the directly-imported `.js` to force it.)
 
 Imports with bare specifiers (`import x from 'react'`), unknown extensions, or paths that escape `INPUT_DIR` are not formally supported and may fail or behave unexpectedly.
 

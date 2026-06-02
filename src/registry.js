@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { html as htmlBuiltin, makeReadfile } from './builtins.js';
@@ -85,7 +86,7 @@ const GENERATED_INHERIT_EXCLUDE = new Set([
   'outputPath',
 ]);
 
-export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, styleRegistry, fontRegistry, plainAssetRegistry }) {
+export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, styleRegistry, fontRegistry, plainAssetRegistry, reloadJs = false }) {
   const mdxModules = new Map();
   const jsxModules = new Map();
   const jsModules = new Map();
@@ -139,7 +140,26 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
 
   async function loadJs(absPath) {
     if (jsModules.has(absPath)) return jsModules.get(absPath);
-    const pending = import(pathToFileURL(absPath).href);
+    // .js modules load through Node's real import(), which caches by URL for the
+    // whole process — across rebuilds, not just within one. (Unlike .md/.mdx/.jsx,
+    // which are read through the injected fs and recompiled every build.) In a
+    // long-lived watch/serve process that means an edited .js file keeps serving
+    // its first-loaded contents. When reloadJs is set, append the file's mtime as
+    // a cache-busting query so a changed file gets a fresh URL (Node re-evaluates
+    // it); unchanged files keep the same URL and their cached module. Caveat:
+    // this only busts the directly-imported module. A .js that statically imports
+    // another .js resolves that inner specifier through Node's resolver to a
+    // query-less URL, so transitive .js→.js edits still won't reload — touch the
+    // directly-imported file to force a reload.
+    const url = pathToFileURL(absPath);
+    if (reloadJs) {
+      try {
+        url.search = `v=${statSync(absPath).mtimeMs}`;
+      } catch {
+        // stat failure (e.g. a race with a delete) — fall back to the bare URL.
+      }
+    }
+    const pending = import(url.href);
     jsModules.set(absPath, pending);
     return pending;
   }

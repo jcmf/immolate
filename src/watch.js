@@ -31,7 +31,9 @@ export async function watch({ buildOptions, debounceMs = 100 }) {
     const start = Date.now();
     try {
       await runLint({ topDir, outputDir, codeFrameWidth });
-      await build({ ...buildOptions, fs });
+      // reloadJs: bust Node's per-URL import() cache for .js files so edits to
+      // them are picked up across rebuilds (see loadJs in registry.js).
+      await build({ ...buildOptions, fs, reloadJs: true });
       state.error = null;
       log(color('green', `built in ${Date.now() - start}ms`));
     } catch (e) {
