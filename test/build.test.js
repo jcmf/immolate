@@ -66,6 +66,22 @@ test('a typo in a {} expression points the caret at the typo', async () => {
   );
 });
 
+test('a top-level export that throws is reported as an evaluation error, not a compile error', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      "export const x = (() => { throw new Error('boom from body') })();\n\n# {x}\n",
+  });
+  await assert.rejects(
+    () => build({ inputDir: '/in', outputDir: '/out', topDir: '/in', fs }),
+    (e) => {
+      assert.match(e.message, /^Failed to evaluate "index\.md": boom from body/);
+      assert.doesNotMatch(e.message, /Failed to compile/);
+      assert.equal(e.cause?.message, 'boom from body');
+      return true;
+    },
+  );
+});
+
 test('an orphan module names its source file and suggests the missing index', async () => {
   const fs = makeFs({
     '/in/index.md': '# r\n',

@@ -463,6 +463,7 @@ The same code frame is shown for **render-time** errors. When a `<Component/>`, 
   while building page /
 ```
 
+A third category: if a top-level `export` (or `{}` expression) throws while the module body runs — e.g. `export const x = compute()` where `compute()` is imported from a `.js` file and raises — the error is reported as `Failed to evaluate "<file>": <message>` (distinct from a `Failed to compile` syntax error) and is followed by the throwing call's stack frame, so it points at the actual source of the throw (e.g. `at compute (lib.js:2:9)`) rather than just naming the page.
 
 ```json
 {

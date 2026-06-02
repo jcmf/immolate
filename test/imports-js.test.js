@@ -137,3 +137,45 @@ test('without reloadJs, Node caches the .js by URL and serves stale content', as
   // Same import URL → Node returns the cached module, so the edit is missed.
   assert.match(nodeFs.readFileSync(out, 'utf8'), /first/);
 });
+
+test('an export that calls a throwing .js function reports an evaluation error pointing at the .js', async () => {
+  const { inputDir, outputDir } = setupCase('export-throws-js', {
+    'index.md':
+      "import { boom } from './lib.js';\n\nexport const x = boom();\n\n# {x}\n",
+    'lib.js':
+      "export function boom() {\n  throw new Error('kaboom from lib');\n}\n",
+  });
+  await assert.rejects(
+    () => build({ inputDir, outputDir, fs: nodeFs }),
+    (e) => {
+      // Labeled as evaluation (not a misleading "Failed to compile"), names the
+      // .md whose body threw, and points at the real throw site in lib.js.
+      assert.match(e.message, /Failed to evaluate "index\.md"/);
+      assert.doesNotMatch(e.message, /Failed to compile/);
+      assert.match(e.message, /kaboom from lib/);
+      assert.match(e.message, /at boom \(.*lib\.js:2:/);
+      assert.equal(e.cause?.message, 'kaboom from lib');
+      return true;
+    },
+  );
+});
+
+test('a nested .jsx whose export throws names the .jsx, not the importer, and is not double-wrapped', async () => {
+  const { inputDir, outputDir } = setupCase('nested-export-throws', {
+    'index.mdx': "import C from './c.jsx';\n\n<C/>\n",
+    'c.jsx':
+      "import { boom } from './lib.js';\nexport const v = boom();\n" +
+      'export default function C() { return <b>{v}</b>; }\n',
+    'lib.js': "export function boom() { throw new Error('nested kaboom'); }\n",
+  });
+  await assert.rejects(
+    () => build({ inputDir, outputDir, fs: nodeFs }),
+    (e) => {
+      assert.match(e.message, /Failed to evaluate "c\.jsx"/);
+      assert.doesNotMatch(e.message, /index\.mdx/);
+      // The throw-site frame appears once, not duplicated by re-wrapping.
+      assert.equal((e.message.match(/at boom \(/g) ?? []).length, 1);
+      return true;
+    },
+  );
+});

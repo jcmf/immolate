@@ -1,6 +1,6 @@
 import { statSync } from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { html as htmlBuiltin, makeReadfile } from './builtins.js';
 import { BUILTIN_SPECS } from './builtins-registry.js';
 import { compileJsxSource } from './compile-jsx.js';
@@ -46,7 +46,40 @@ function makeCompileError(displayPath, source, cause) {
     if (frame) msg += `\n\n${frame}`;
   }
   if (cause.url) msg += `\n\nSee: ${cause.url}`;
-  return new Error(msg);
+  const err = new Error(msg);
+  err.xtaticFormatted = true;
+  return err;
+}
+
+// xtatic's own source dir — used to drop internal frames from an eval error's
+// stack so what's left points at the user's code.
+const XTATIC_SRC_DIR = path.dirname(fileURLToPath(import.meta.url));
+
+// Keep the user-facing frames of a thrown error's stack: drop Node internals
+// and xtatic's own machinery (the compiled module-body wrapper runs as `eval at
+// compileSource (…/src/compile.js…)`, so those frames carry the src dir too).
+function userStackFrames(stack) {
+  return String(stack ?? '')
+    .split('\n')
+    .filter((l) => /^\s*at\s/.test(l))
+    .filter((l) => !/[ (]node:/.test(l) && !l.includes(XTATIC_SRC_DIR))
+    .slice(0, 10);
+}
+
+// A throw while *evaluating* a module body — a top-level `export`/expression
+// that called a function which threw — isn't a compile error. makeCompileError
+// would mislabel it and discard the original stack (which pinpoints the real
+// throw site, often an imported .js). Label it as evaluation, surface the
+// underlying message, and append the surviving user frames so "where" is clear.
+function makeEvalError(displayPath, cause) {
+  const reason = cause?.message ?? String(cause);
+  let msg = `Failed to evaluate "${displayPath}": ${reason}`;
+  const frames = userStackFrames(cause?.stack);
+  if (frames.length) msg += `\n\n${frames.join('\n')}`;
+  const err = new Error(msg);
+  err.cause = cause;
+  err.xtaticFormatted = true;
+  return err;
 }
 
 // Tag a compiled module object with its display path so render-context frames
@@ -177,6 +210,12 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
         importerDisplay: displayPath(absPath),
       });
     } catch (e) {
+      // A nested import that failed already carries a formatted xtatic error
+      // naming the real culprit file — re-throw it as-is rather than wrapping it
+      // again under this importer (which would bury the culprit and duplicate
+      // its stack frames).
+      if (e?.xtaticFormatted) throw e;
+      if (e?.xtaticEvalError) throw makeEvalError(displayPath(absPath), e);
       throw makeCompileError(displayPath(absPath), source, e);
     }
     Object.assign(mm, compiled);
@@ -202,6 +241,12 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
         remarkPlugins,
       });
     } catch (e) {
+      // A nested import that failed already carries a formatted xtatic error
+      // naming the real culprit file — re-throw it as-is rather than wrapping it
+      // again under this importer (which would bury the culprit and duplicate
+      // its stack frames).
+      if (e?.xtaticFormatted) throw e;
+      if (e?.xtaticEvalError) throw makeEvalError(displayPath(absPath), e);
       throw makeCompileError(displayPath(absPath), source, e);
     }
     Object.assign(mm, compiled);

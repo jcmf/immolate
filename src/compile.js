@@ -43,11 +43,21 @@ export async function compileSource(source, options = {}) {
     },
   );
   const fn = new AsyncFunction(String(compiled));
-  const mod = await fn({
-    ...runtime,
-    baseUrl: 'file:///xtatic/',
-    __xtatic_resolve: resolve,
-    __xtatic_asset: asset ?? ((value) => value),
-  });
+  let mod;
+  try {
+    mod = await fn({
+      ...runtime,
+      baseUrl: 'file:///xtatic/',
+      __xtatic_resolve: resolve,
+      __xtatic_asset: asset ?? ((value) => value),
+    });
+  } catch (e) {
+    // A throw here is a runtime error from evaluating the module body (e.g. a
+    // top-level `export const x = f()` whose f() threw), not an MDX compile
+    // error. Tag it so the caller labels it as evaluation and keeps the
+    // original stack (which points at the real throw site).
+    if (e && typeof e === 'object') e.xtaticEvalError = true;
+    throw e;
+  }
   return { ...(mod.frontmatter ?? {}), ...mod };
 }
