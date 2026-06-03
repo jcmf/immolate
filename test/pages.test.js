@@ -21,11 +21,11 @@ async function loadAndExpand(files, tmplRel) {
   return { mm, entries };
 }
 
-test('expandTemplate produces one child entry per pages item', async () => {
+test('expandTemplate produces one child entry per getPages item', async () => {
   const { entries } = await loadAndExpand(
     {
       '/in/tag-{tag}.md':
-        "export const pages = [{ tag: 'rust' }, { tag: 'js' }]\n\n# {tag}\n",
+        "export const getPages = () => [{ tag: 'rust' }, { tag: 'js' }]\n\n# {tag}\n",
     },
     'tag-{tag}.md',
   );
@@ -45,7 +45,7 @@ test('item-only fields render per-child; a template const is shared', async () =
     {
       '/in/p-{slug}.md':
         "export const site = 'base'\n" +
-        "export const pages = [{ slug: 'a' }, { slug: 'b' }]\n\n" +
+        "export const getPages = () => [{ slug: 'a' }, { slug: 'b' }]\n\n" +
         '{site}-{slug}\n',
     },
     'p-{slug}.md',
@@ -65,7 +65,7 @@ test('a pages item that reuses a template export name is an error', async () => 
         {
           '/in/p-{slug}.md':
             "export const site = 'base'\n" +
-            "export const pages = [{ slug: 'a', site: 'x' }]\n\nhi\n",
+            "export const getPages = () => [{ slug: 'a', site: 'x' }]\n\nhi\n",
         },
         'p-{slug}.md',
       ),
@@ -73,39 +73,61 @@ test('a pages item that reuses a template export name is an error', async () => 
   );
 });
 
-test('expandTemplate does not carry `pages` onto generated children', async () => {
+test('expandTemplate does not carry `getPages` onto generated children', async () => {
   const { entries } = await loadAndExpand(
-    { '/in/x-{k}.md': "export const pages = [{ k: 'a' }]\n\nhi\n" },
+    { '/in/x-{k}.md': "export const getPages = () => [{ k: 'a' }]\n\nhi\n" },
     'x-{k}.md',
   );
-  assert.equal('pages' in entries[0].mm, false);
+  assert.equal('getPages' in entries[0].mm, false);
 });
 
 test('.url on a generated child points at its own substituted path', async () => {
   // No plainAssetRegistry here, so the url getter is identity (root-absolute).
   const { entries } = await loadAndExpand(
-    { '/in/tag-{tag}.md': "export const pages = [{ tag: 'rust' }]\n\nhi\n" },
+    { '/in/tag-{tag}.md': "export const getPages = () => [{ tag: 'rust' }]\n\nhi\n" },
     'tag-{tag}.md',
   );
   assert.equal(entries[0].mm.url, '/tag-rust.md');
 });
 
-test('expandTemplate rejects a non-array `pages`', async () => {
+test('expandTemplate rejects a non-function `getPages`', async () => {
   await assert.rejects(
     () =>
       loadAndExpand(
-        { '/in/x-{k}.md': 'export const pages = 5\n\nhi\n' },
+        { '/in/x-{k}.md': 'export const getPages = 5\n\nhi\n' },
         'x-{k}.md',
       ),
-    /must export an array `pages` \(got number\)/,
+    /must export a function `getPages` \(got number\)/,
   );
 });
 
-test('expandTemplate rejects a non-object pages item', async () => {
+test('expandTemplate rejects a getPages that returns a non-array', async () => {
   await assert.rejects(
     () =>
       loadAndExpand(
-        { '/in/x-{k}.md': 'export const pages = [42]\n\nhi\n' },
+        { '/in/x-{k}.md': 'export const getPages = () => 5\n\nhi\n' },
+        'x-{k}.md',
+      ),
+    /getPages\(\) must return an array \(got number\)/,
+  );
+});
+
+test('expandTemplate surfaces a throw from getPages under the generator name', async () => {
+  await assert.rejects(
+    () =>
+      loadAndExpand(
+        { '/in/x-{k}.md': "export const getPages = () => { throw new Error('boom') }\n\nhi\n" },
+        'x-{k}.md',
+      ),
+    /Page generator "x-\{k\}\.md" getPages\(\) threw: boom/,
+  );
+});
+
+test('expandTemplate rejects a non-object item', async () => {
+  await assert.rejects(
+    () =>
+      loadAndExpand(
+        { '/in/x-{k}.md': 'export const getPages = () => [42]\n\nhi\n' },
         'x-{k}.md',
       ),
     /pages\[0\] must be an object \(got number\)/,
@@ -116,7 +138,7 @@ test('expandTemplate rejects an item missing a placeholder value', async () => {
   await assert.rejects(
     () =>
       loadAndExpand(
-        { '/in/tag-{tag}.md': "export const pages = [{ nope: 'x' }]\n\nhi\n" },
+        { '/in/tag-{tag}.md': "export const getPages = () => [{ nope: 'x' }]\n\nhi\n" },
         'tag-{tag}.md',
       ),
     /Missing value for filename placeholder "\{tag\}".*pages\[0\]/s,
@@ -129,7 +151,7 @@ test('a generator fans out into one page per item, substituting the filename', a
   const fs = makeFs({
     '/in/index.md': '# Home\n',
     '/in/tag-{tag}.md':
-      "export const pages = [{ tag: 'rust' }, { tag: 'js' }]\n\n# Tag: {tag}\n",
+      "export const getPages = () => [{ tag: 'rust' }, { tag: 'js' }]\n\n# Tag: {tag}\n",
   });
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const rust = await fs.promises.readFile('/out/tag-rust/index.html', 'utf8');
@@ -145,7 +167,7 @@ test('generated pages join the tree: a listing links them via childPages + url',
     '/in/index.md':
       "{childPages.map((c) => <a href={c.url}>{c.tag}</a>)}\n",
     '/in/tag-{tag}.md':
-      "export const pages = [{ tag: 'rust' }, { tag: 'js' }]\n\n# {tag}\n",
+      "export const getPages = () => [{ tag: 'rust' }, { tag: 'js' }]\n\n# {tag}\n",
   });
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const home = await fs.promises.readFile('/out/index.html', 'utf8');
@@ -161,7 +183,7 @@ test('item exports drive metadata; the substituted name defaults title', async (
     '/top/pages/index.md': '# Home\n',
     '/top/pages/tag-{tag}.md':
       '---\nlayout: base\n---\n' +
-      "export const pages = [{ tag: 'rust' }, { tag: 'js', title: 'Custom JS' }]\n\n# {tag}\n",
+      "export const getPages = () => [{ tag: 'rust' }, { tag: 'js', title: 'Custom JS' }]\n\n# {tag}\n",
   });
   await build({ inputDir: '/top/pages', outputDir: '/out', topDir: '/top', fs });
   const rust = await fs.promises.readFile('/out/tag-rust/index.html', 'utf8');
@@ -175,7 +197,7 @@ test('an item can redirect its write location with outputPath', async () => {
   const fs = makeFs({
     '/in/index.md': '# Home\n',
     '/in/feed-{slug}.md':
-      "export const pages = [{ slug: 'main', outputPath: '/feed.xml' }]\n\nhi {slug}\n",
+      "export const getPages = () => [{ slug: 'main', outputPath: '/feed.xml' }]\n\nhi {slug}\n",
   });
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const feed = await fs.promises.readFile('/out/feed.xml', 'utf8');
@@ -187,7 +209,7 @@ test('a generator can be nested under a section directory', async () => {
     '/in/index.md': '# Home\n',
     '/in/blog/index.md': '# Blog\n',
     '/in/blog/post-{slug}.md':
-      "export const pages = [{ slug: 'a' }, { slug: 'b' }]\n\n# {slug}\n",
+      "export const getPages = () => [{ slug: 'a' }, { slug: 'b' }]\n\n# {slug}\n",
   });
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const a = await fs.promises.readFile('/out/blog/post-a/index.html', 'utf8');
@@ -195,14 +217,46 @@ test('a generator can be nested under a section directory', async () => {
   await fs.promises.readFile('/out/blog/post-b/index.html', 'utf8');
 });
 
-test('a non-generator file exporting `pages` is an error with a hint', async () => {
+test('getPages can import a parent page and iterate its childPages', async () => {
   const fs = makeFs({
     '/in/index.md': '# Home\n',
-    '/in/posts.md': "export const pages = [{ slug: 'a' }]\n\nhi\n",
+    '/in/blog/index.md': '# Blog\n',
+    '/in/blog/2026-01-01-hello.md': '---\ntags: [rust, js]\n---\n# Hello\n',
+    '/in/blog/2026-02-01-world.md': '---\ntags: [rust]\n---\n# World\n',
+    '/in/tag-{tag}.md':
+      "import blog from '/blog/index.md'\n" +
+      'export const getPages = () => {\n' +
+      '  const byTag = new Map()\n' +
+      '  for (const post of blog.childPages)\n' +
+      '    for (const t of post.tags ?? []) {\n' +
+      '      if (!byTag.has(t)) byTag.set(t, [])\n' +
+      '      byTag.get(t).push(post)\n' +
+      '    }\n' +
+      '  return [...byTag].map(([tag, posts]) => ({ tag, posts }))\n' +
+      '}\n\n' +
+      '# Posts tagged {tag}\n\n' +
+      '<ul>{posts.map((p) => <li><a href={p.url}>{p.title}</a></li>)}</ul>\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const rust = await fs.promises.readFile('/out/tag-rust/index.html', 'utf8');
+  const js = await fs.promises.readFile('/out/tag-js/index.html', 'utf8');
+  // rust matched both posts; js only the one tagged js.
+  assert.match(rust, /Hello/);
+  assert.match(rust, /World/);
+  assert.match(js, /Hello/);
+  assert.doesNotMatch(js, /World/);
+  // The generated tag pages link the posts via their (page-relative) url.
+  assert.match(rust, /<a href="\.\.\/blog\/2026-02-01-world\/">World<\/a>/);
+});
+
+test('a non-generator file exporting `getPages` is an error with a hint', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# Home\n',
+    '/in/posts.md': "export const getPages = () => [{ slug: 'a' }]\n\nhi\n",
   });
   await assert.rejects(
     () => build({ inputDir: '/in', outputDir: '/out', fs }),
-    /"posts\.md" exports `pages` but its filename has no \{placeholder\}.*posts-\{slug\}\.md/s,
+    /"posts\.md" exports `getPages` but its filename has no \{placeholder\}.*posts-\{slug\}\.md/s,
   );
 });
 
@@ -210,7 +264,7 @@ test('two items with the same substituted slug collide', async () => {
   const fs = makeFs({
     '/in/index.md': '# Home\n',
     '/in/tag-{tag}.md':
-      "export const pages = [{ tag: 'x' }, { tag: 'x' }]\n\nhi\n",
+      "export const getPages = () => [{ tag: 'x' }, { tag: 'x' }]\n\nhi\n",
   });
   await assert.rejects(
     () => build({ inputDir: '/in', outputDir: '/out', fs }),
@@ -222,7 +276,7 @@ test('a generated slug colliding with a real file is an error', async () => {
   const fs = makeFs({
     '/in/index.md': '# Home\n',
     '/in/tag-rust.md': '# real\n',
-    '/in/tag-{tag}.md': "export const pages = [{ tag: 'rust' }]\n\nhi\n",
+    '/in/tag-{tag}.md': "export const getPages = () => [{ tag: 'rust' }]\n\nhi\n",
   });
   await assert.rejects(
     () => build({ inputDir: '/in', outputDir: '/out', fs }),
@@ -230,10 +284,10 @@ test('a generated slug colliding with a real file is an error', async () => {
   );
 });
 
-test('an empty pages array produces no pages', async () => {
+test('an empty getPages result produces no pages', async () => {
   const fs = makeFs({
     '/in/index.md': '# Home\n',
-    '/in/tag-{tag}.md': 'export const pages = []\n\nhi {tag}\n',
+    '/in/tag-{tag}.md': 'export const getPages = () => []\n\nhi {tag}\n',
   });
   await build({ inputDir: '/in', outputDir: '/out', fs });
   const home = await fs.promises.readFile('/out/index.html', 'utf8');

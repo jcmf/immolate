@@ -131,7 +131,7 @@ function assertUniqueLogicalPaths(entries) {
   }
 }
 
-// Suggest a generator filename for a file that exported `pages` without one:
+// Suggest a generator filename for a file that exported `getPages` without one:
 // foo.md → foo-{slug}.md, blog/post.mdx → blog/post-{slug}.mdx.
 function placeholderHint(relPath) {
   const slash = relPath.lastIndexOf('/');
@@ -256,8 +256,8 @@ async function buildImpl({
   await fs.promises.rm(outputDir, { recursive: true, force: true });
   const files = await walkMdx(fs, inputDir);
   // Page generators are files whose name carries `{placeholder}` tokens (e.g.
-  // tag-{tag}.md); they expand into one page per `pages` item instead of
-  // rendering at their own slot. Everything else is an ordinary page.
+  // tag-{tag}.md); they expand into one page per item their `getPages()` returns
+  // instead of rendering at their own slot. Everything else is an ordinary page.
   const templateFiles = [];
   const normalFiles = [];
   for (const f of files) {
@@ -312,15 +312,24 @@ async function buildImpl({
   for (const entry of entries) {
     entry.mm = await registry.loadMdx(entry.absPath);
   }
-  // A file that exports `pages` but isn't a generator (no {placeholder} in its
-  // name) would silently render once and drop the export — surface it instead.
+  // A file that exports `getPages` but isn't a generator (no {placeholder} in
+  // its name) would silently render once and drop the export — surface it.
   for (const entry of entries) {
-    if (entry.mm.pages !== undefined) {
+    if (entry.mm.getPages !== undefined) {
       throw new Error(
-        `"${entry.relPath}" exports \`pages\` but its filename has no {placeholder}; ` +
+        `"${entry.relPath}" exports \`getPages\` but its filename has no {placeholder}; ` +
           `rename it (e.g. ${placeholderHint(entry.relPath)}) to generate multiple pages from it.`,
       );
     }
+  }
+  // Assemble the ordinary pages into a tree before expanding generators, so a
+  // generator's getPages() can import a parent page and iterate its childPages
+  // (which only exist post-assembly). The same mm objects are re-wired by the
+  // full assembly below once the generated pages join — assembleTree rebuilds
+  // childPages from scratch, so running it twice is safe. Skip when there are no
+  // generators: nothing reads the intermediate state.
+  if (templateFiles.length > 0) {
+    assembleTree(entries, { inputDir });
   }
   // Expand each generator into its synthetic child pages, then fold them into
   // the entry set so they flow through tree assembly and rendering as usual.

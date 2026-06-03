@@ -314,7 +314,7 @@ test('a page generator ({placeholder} filename) lints clean and builds', () => {
   const top = setupTopDir('generator-clean', {
     'pages/index.mdx': '# Home\n',
     'pages/tag-{tag}.md':
-      "export const pages = [{ tag: 'rust' }, { tag: 'js' }]\n\n# Tag: {tag}\n",
+      "export const getPages = () => [{ tag: 'rust' }, { tag: 'js' }]\n\n# Tag: {tag}\n",
   });
   const r = runCli(top);
   assert.equal(r.status, 0, r.stderr);
@@ -333,7 +333,7 @@ test('lint inspects generator files: a broken import is caught', () => {
     'pages/index.mdx': '# Home\n',
     'pages/tag-{tag}.md':
       "import X from './missing.mdx';\n\n" +
-      "export const pages = [{ tag: 'a' }]\n\n# {tag}\n",
+      "export const getPages = () => [{ tag: 'a' }]\n\n# {tag}\n",
   });
   const r = runCli(top);
   assert.notEqual(r.status, 0);

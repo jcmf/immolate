@@ -107,14 +107,14 @@ export function isJs(absPath) {
 }
 
 // Keys never inherited by a generated page from its template: tool-derived /
-// positional (`name`, `childPages`, `url`), the trigger export (`pages`), the
+// positional (`name`, `childPages`, `url`), the trigger export (`getPages`), the
 // render entry point (`default`, rebound per child), and `outputPath` (which
 // must be per-item or every child would write to the same file).
 const GENERATED_INHERIT_EXCLUDE = new Set([
   'name',
   'childPages',
   'url',
-  'pages',
+  'getPages',
   'default',
   'outputPath',
 ]);
@@ -260,19 +260,39 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
     return mm;
   }
 
-  // Expand a page generator (a loaded .md/.mdx module that exports `pages`,
-  // named with `{placeholder}` tokens) into one synthetic child module per
-  // `pages` item. Each child is a normal module object so it flows through the
-  // rest of the pipeline (tree placement, name/title/date defaulting, layout
-  // chain, `.url`, render-context) with no special-casing. `toRelPath` maps an
-  // absolute path back to the inputDir-relative form used for segments — only
-  // the caller (buildImpl) knows inputDir, which may differ from topDir.
+  // Expand a page generator (a loaded .md/.mdx module that exports a `getPages`
+  // function, named with `{placeholder}` tokens) into one synthetic child module
+  // per item the function returns. getPages() is called here — after buildImpl
+  // has assembled the ordinary-page tree — so it can import a parent page and
+  // iterate its childPages (which only exist post-assembly). Each child is a
+  // normal module object so it flows through the rest of the pipeline (tree
+  // placement, name/title/date defaulting, layout chain, `.url`, render-context)
+  // with no special-casing. `toRelPath` maps an absolute path back to the
+  // inputDir-relative form used for segments — only the caller (buildImpl) knows
+  // inputDir, which may differ from topDir.
   function expandTemplate(tmplMm, tmplAbsPath, { toRelPath }) {
     const tmplDisplay = displayPath(tmplAbsPath);
-    const items = tmplMm.pages;
+    const getPages = tmplMm.getPages;
+    if (typeof getPages !== 'function') {
+      throw new Error(
+        `Page generator "${tmplDisplay}" must export a function \`getPages\` (got ${getPages === undefined ? 'undefined' : typeof getPages}).`,
+      );
+    }
+    // getPages is user code (often reading an imported parent's childPages) —
+    // surface a throw under the generator's name rather than as a bare
+    // "cannot read properties of undefined" with no hint of where it came from.
+    let items;
+    try {
+      items = getPages();
+    } catch (e) {
+      throw new Error(
+        `Page generator "${tmplDisplay}" getPages() threw: ${e?.message ?? e}`,
+        { cause: e },
+      );
+    }
     if (!Array.isArray(items)) {
       throw new Error(
-        `Page generator "${tmplDisplay}" must export an array \`pages\` (got ${items === undefined ? 'undefined' : typeof items}).`,
+        `Page generator "${tmplDisplay}" getPages() must return an array (got ${items === undefined ? 'undefined' : typeof items}).`,
       );
     }
     const original = rawDefaults.get(tmplAbsPath);
@@ -311,7 +331,7 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
         );
       }
       Object.assign(child, item);
-      delete child.pages;
+      delete child.getPages;
       // Render the shared body with `__xtatic_self` pointing at THIS child, so
       // the item's fields surface as bare identifiers ({tag}) just like any
       // other module export.

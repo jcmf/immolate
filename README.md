@@ -78,23 +78,34 @@ The value must be an absolute path (starting with `/`) naming a file. `name`, `c
 One source file can fan out into many pages — a tag page per tag, a post page per row of data, etc. Two things make a file a **page generator**:
 
 1. Its filename contains one or more `{placeholder}` tokens, e.g. `tag-{tag}.md`.
-2. It exports an array named `pages`. Each item is a plain object that becomes **the exports of one generated page**.
+2. It exports a **function** named `getPages` that returns an array. Each item is a plain object that becomes **the exports of one generated page**.
+
+`getPages()` runs *after* xtatic has assembled the ordinary pages into a tree, so it can import another page and read its tree-derived fields — most usefully a parent's `childPages`. That's how you build a tag index: import the section page, walk its children, and group them by tag.
 
 ```mdx
 <!-- INPUT_DIR/tag-{tag}.md -->
-export const pages = [
-  { tag: 'rust', posts: postsByTag.rust },
-  { tag: 'js', title: 'JavaScript posts', posts: postsByTag.js },
-];
+import blog from '/pages/blog/index.md';
+
+export const getPages = () => {
+  const byTag = new Map();
+  for (const post of blog.childPages)
+    for (const t of post.tags ?? []) {
+      if (!byTag.has(t)) byTag.set(t, []);
+      byTag.get(t).push(post);
+    }
+  return [...byTag].map(([tag, posts]) => ({ tag, posts }));
+};
 
 # Posts tagged "{tag}"
 
 <ul>{posts.map((p) => <li><a href={p.url}>{p.title}</a></li>)}</ul>
 ```
 
-This emits `OUTPUT_DIR/tag-rust/index.html` and `OUTPUT_DIR/tag-js/index.html`. For each item, the value of each filename placeholder is taken from the matching field (`{tag}` ← `item.tag`), and **every field is an export of that generated page** — readable as a bare identifier in the body (`{tag}`, `{posts}`) exactly like frontmatter, and visible from outside as `page.tag` / via `{...page}`. The generator file itself does **not** render at its own slot; it only produces the items.
+If `blog/` holds posts tagged `rust` and `js`, this emits `OUTPUT_DIR/tag-rust/index.html` and `OUTPUT_DIR/tag-js/index.html`. For each item, the value of each filename placeholder is taken from the matching field (`{tag}` ← `item.tag`), and **every field is an export of that generated page** — readable as a bare identifier in the body (`{tag}`, `{posts}`) exactly like frontmatter, and visible from outside as `page.tag` / via `{...page}`. The generator file itself does **not** render at its own slot; it only produces the items.
 
-The generated pages are ordinary tree nodes: they appear in their parent's `childPages`, each has a working `url`, and `name`/`date`/`title` default from the substituted filename (so `2026-01-02-{slug}.md` yields a `date`, and `tag-rust` titles as "Tag Rust"). A field on the item overrides those defaults — `title: 'JavaScript posts'` above wins over the name-derived title. So a separate listing page can link them the usual way:
+`blog.childPages` are the post modules themselves, so each carries `tags` (from its frontmatter), `title`, `date`, and a working `url`. `childPages` is direct children only, already sorted by name. (`getPages` doesn't have to use `childPages` — return any array of objects you like, e.g. one page per row of imported data.)
+
+The generated pages are ordinary tree nodes: they appear in their parent's `childPages`, each has a working `url`, and `name`/`date`/`title` default from the substituted filename (so `2026-01-02-{slug}.md` yields a `date`, and `tag-rust` titles as "Tag Rust"). A field on the item overrides those defaults — an item of `{ tag: 'js', title: 'JavaScript posts' }` would override the name-derived title. So a separate listing page can link them the usual way:
 
 ```mdx
 <ul>{childPages.map((c) => <li><a href={c.url}>{c.tag}</a></li>)}</ul>
@@ -104,9 +115,9 @@ Other details:
 
 - **`outputPath` works per item**, redirecting just that page's written file (`{ slug: 'feed', outputPath: '/feed.xml' }`).
 - **The generator's own exports are inherited as defaults** by each generated page (so a shared `layout`, `defaultLayout`, or helper export carries through). A template-level const is shared by every page and can be read in the body; per-page values go in the items.
-- **A page field can't share a name with a template export** — it's an error (rename one). This avoids an item silently shadowing the file's own `export const`, which the body wouldn't even reflect (a declared const binds lexically, so `{author}` always renders the template's value). The name-derived `title`/`date` defaults aren't template exports, so an item setting `title`/`date` is fine — that's the `title: 'JavaScript posts'` override above.
+- **A page field can't share a name with a template export** — it's an error (rename one). This avoids an item silently shadowing the file's own `export const`, which the body wouldn't even reflect (a declared const binds lexically, so `{author}` always renders the template's value). The name-derived `title`/`date` defaults aren't template exports, so an item setting `title`/`date` is fine.
 
-Rules and limits: a `{placeholder}`-named file must export `pages` (and vice-versa — exporting `pages` from a file with no placeholder is an error, since there'd be nothing to distinguish the pages). Placeholder values must be path-safe strings, every placeholder must be filled, and two items must not resolve to the same path (nor collide with a real file). In this version, placeholders may appear only in the **filename** (not directory segments), generated pages can't themselves be generators, and values are used verbatim (no slugifying).
+Rules and limits: a `{placeholder}`-named file must export a `getPages` function (and vice-versa — exporting `getPages` from a file with no placeholder is an error, since there'd be nothing to distinguish the pages). `getPages` must return an array of objects; placeholder values must be path-safe strings, every placeholder must be filled, and two items must not resolve to the same path (nor collide with a real file). Generated pages can't themselves be generators, so a generator only ever sees the ordinary pages — you can't build tag pages out of other tag pages. In this version, placeholders may appear only in the **filename** (not directory segments), and values are used verbatim (no slugifying).
 
 ## Pages
 
