@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { createOutputWriter } from './output.js';
 
 // Emitted-asset references are placeholders until the final substitute pass,
 // where they're rewritten to a path *relative* to the file that contains the
@@ -12,7 +13,11 @@ const EMIT_TOKEN_RE = /__XTATIC_EMIT_([a-f0-9]+\.[a-z0-9]+)__/g;
 // written verbatim (and must not be round-tripped through utf8).
 const RELATIVIZE_EXTS = new Set(['css']);
 
-export function createAssetRegistry({ fs, outputDir, assetsDir = '_assets' }) {
+// `writer` is the build's shared output writer (skip-if-unchanged writes +
+// prune bookkeeping); when absent (registry-only unit tests) a private one is
+// created over the same fs/outputDir.
+export function createAssetRegistry({ fs, outputDir, assetsDir = '_assets', writer }) {
+  writer = writer ?? createOutputWriter({ fs, outputDir });
   const emissions = new Map();
   const assetsRoot = `${outputDir}/${assetsDir}`;
 
@@ -39,17 +44,11 @@ export function createAssetRegistry({ fs, outputDir, assetsDir = '_assets' }) {
 
   async function writeAll() {
     if (emissions.size === 0) return;
-    const dirs = new Set();
     for (const { absPath, bytes, ext } of emissions.values()) {
-      const dir = absPath.substring(0, absPath.lastIndexOf('/'));
-      if (!dirs.has(dir)) {
-        await fs.promises.mkdir(dir, { recursive: true });
-        dirs.add(dir);
-      }
       const out = RELATIVIZE_EXTS.has(ext)
         ? Buffer.from(relativize(bytes.toString('utf8'), assetsRoot), 'utf8')
         : bytes;
-      await fs.promises.writeFile(absPath, out);
+      await writer.writeFile(absPath, out);
     }
   }
 

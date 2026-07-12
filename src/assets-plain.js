@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { VALID_PLACEMENTS } from './asset-rules.js';
 import { rewriteCssUrls } from './css-urls.js';
+import { createOutputWriter } from './output.js';
 import { attachContext, currentStack } from './render-context.js';
 
 const TOKEN_RE = /__XTATIC_ASSET_[a-f0-9]+__/g;
@@ -77,7 +78,11 @@ export function createPlainAssetRegistry({
   outputDir,
   assetRegistry,
   defaultInlineThreshold = 4096,
+  writer,
 }) {
+  // The build's shared output writer (skip-if-unchanged writes + prune
+  // bookkeeping); registry-only unit tests get a private one.
+  writer = writer ?? createOutputWriter({ fs, outputDir });
   const calls = [];
   const colocatedWrites = new Map();
   // absSrc → rewritten CSS text, populated during processAll for any `.css`
@@ -365,15 +370,10 @@ export function createPlainAssetRegistry({
 
   async function writeAll() {
     if (colocatedWrites.size === 0) return;
-    const dirs = new Set();
     for (const [absPath, bytes] of colocatedWrites) {
-      const dir = path.posix.dirname(absPath);
-      if (!dirs.has(dir)) {
-        await fs.promises.mkdir(dir, { recursive: true });
-        dirs.add(dir);
-      }
       // A co-located .css can carry emit placeholders for url()-referenced
       // assets that went to _assets/; rewrite them relative to this file's dir.
+      const dir = path.posix.dirname(absPath);
       const ext = (EXT_RE.exec(absPath)?.[1] ?? '').toLowerCase();
       const out =
         ext === 'css'
@@ -382,7 +382,7 @@ export function createPlainAssetRegistry({
               'utf8',
             )
           : bytes;
-      await fs.promises.writeFile(absPath, out);
+      await writer.writeFile(absPath, out);
     }
   }
 

@@ -8,6 +8,7 @@ import { resolveLogicalPath, hasPlaceholders } from './paths.js';
 import { assembleTree } from './tree.js';
 import { renderModule } from './render.js';
 import { attachContext, formatContext, withFrame } from './render-context.js';
+import { createOutputWriter } from './output.js';
 import { createRegistry } from './registry.js';
 import { wrapZipFs } from './zipfs.js';
 
@@ -95,15 +96,9 @@ function renderTree(mm, segments, outputDir, topDir, assetsDirAbs, pages, seen) 
   }
 }
 
-async function writePages(pages, substitute, fs) {
-  const dirs = new Set();
+async function writePages(pages, substitute, writer) {
   for (const { outPath, html } of pages) {
-    const dir = outPath.substring(0, outPath.lastIndexOf('/'));
-    if (!dirs.has(dir)) {
-      await fs.promises.mkdir(dir, { recursive: true });
-      dirs.add(dir);
-    }
-    await fs.promises.writeFile(outPath, substitute(html, outPath));
+    await writer.writeFile(outPath, substitute(html, outPath));
   }
 }
 
@@ -166,7 +161,7 @@ function assertSafeOutputDir(outputDir, sources) {
   for (const [name, dir] of Object.entries(sources)) {
     if (isInsideOrSame(outputDir, dir)) {
       throw new Error(
-        `outputDir "${outputDir}" must not be the same as or an ancestor of ${name} "${dir}" (it is wiped at the start of every build).`,
+        `outputDir "${outputDir}" must not be the same as or an ancestor of ${name} "${dir}" (files it doesn't generate are deleted at the end of every build).`,
       );
     }
   }
@@ -253,8 +248,14 @@ async function buildImpl({
   assertSafeOutputDir(outputDir, { topDir, inputDir, layoutsDir });
   assertValidAssetsDir(assetsDir);
   const assetsDirAbs = path.posix.join(outputDir, assetsDir);
+  // The writer keeps the raw injected fs: output paths never need the zip
+  // interception, and the unchanged-file comparison reads would otherwise be
+  // misrouted for a (pathological) output path containing a `.zip/` segment.
+  // There is no upfront wipe of outputDir — unchanged files are skipped to
+  // preserve their timestamps, and writer.prune() at the end deletes whatever
+  // this build didn't write (so renames/deletes still can't leave stale files).
+  const writer = createOutputWriter({ fs, outputDir });
   fs = wrapZipFs(fs);
-  await fs.promises.rm(outputDir, { recursive: true, force: true });
   const files = await walkPages(fs, inputDir);
   // Page generators are files whose name carries `{placeholder}` tokens (e.g.
   // tag-{tag}.md); they expand into one page per item their `getPages()` returns
@@ -270,7 +271,7 @@ async function buildImpl({
     absPath: f.absPath,
   }));
 
-  const assetRegistry = createAssetRegistry({ fs, outputDir, assetsDir });
+  const assetRegistry = createAssetRegistry({ fs, outputDir, assetsDir, writer });
   const imageRegistry = createImageRegistry({
     fs,
     topDir,
@@ -299,6 +300,7 @@ async function buildImpl({
     outputDir,
     assetRegistry,
     defaultInlineThreshold: assetInlineThreshold,
+    writer,
   });
   const registry = createRegistry({
     fs,
@@ -390,7 +392,8 @@ async function buildImpl({
       ),
       path.posix.dirname(outPath),
     );
-  await writePages(pages, substitute, fs);
+  await writePages(pages, substitute, writer);
+  await writer.prune();
 }
 
 async function resolveLayoutChain(mm, ctx) {
