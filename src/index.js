@@ -11,9 +11,10 @@ import { attachContext, formatContext, withFrame } from './render-context.js';
 import { createRegistry } from './registry.js';
 import { wrapZipFs } from './zipfs.js';
 
-const MDX_EXT_RE = /\.mdx?$/;
+const PAGE_EXT_RE = /\.(?:mdx?|html)$/;
+const HTML_EXT_RE = /\.html$/;
 
-async function walkMdx(fs, root) {
+async function walkPages(fs, root) {
   const results = [];
   async function recurse(absDir, relDir) {
     const entries = await fs.promises.readdir(absDir, { withFileTypes: true });
@@ -23,7 +24,7 @@ async function walkMdx(fs, root) {
       const childRel = relDir === '' ? ent.name : `${relDir}/${ent.name}`;
       if (ent.isDirectory()) {
         await recurse(childAbs, childRel);
-      } else if (ent.isFile() && MDX_EXT_RE.test(ent.name)) {
+      } else if (ent.isFile() && PAGE_EXT_RE.test(ent.name)) {
         results.push({ absPath: childAbs, relPath: childRel });
       }
     }
@@ -254,7 +255,7 @@ async function buildImpl({
   const assetsDirAbs = path.posix.join(outputDir, assetsDir);
   fs = wrapZipFs(fs);
   await fs.promises.rm(outputDir, { recursive: true, force: true });
-  const files = await walkMdx(fs, inputDir);
+  const files = await walkPages(fs, inputDir);
   // Page generators are files whose name carries `{placeholder}` tokens (e.g.
   // tag-{tag}.md); they expand into one page per item their `getPages()` returns
   // instead of rendering at their own slot. Everything else is an ordinary page.
@@ -310,7 +311,9 @@ async function buildImpl({
     reloadJs,
   });
   for (const entry of entries) {
-    entry.mm = await registry.loadMdx(entry.absPath);
+    entry.mm = HTML_EXT_RE.test(entry.relPath)
+      ? await registry.loadHtml(entry.absPath)
+      : await registry.loadMdx(entry.absPath);
   }
   // A file that exports `getPages` but isn't a generator (no {placeholder} in
   // its name) would silently render once and drop the export — surface it.
@@ -335,6 +338,11 @@ async function buildImpl({
   // the entry set so they flow through tree assembly and rendering as usual.
   const toRelPath = (abs) => path.posix.relative(inputDir, abs);
   for (const f of templateFiles) {
+    if (HTML_EXT_RE.test(f.relPath)) {
+      throw new Error(
+        `Page generator "${f.relPath}" must be a .md or .mdx file: a .html file cannot export getPages.`,
+      );
+    }
     const tmplMm = await registry.loadMdx(f.absPath);
     for (const e of registry.expandTemplate(tmplMm, f.absPath, { toRelPath })) {
       entries.push(e);

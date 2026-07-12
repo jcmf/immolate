@@ -1,4 +1,6 @@
-const EXT_RE = /\.mdx?$/;
+// Extensions that make a file a page source: .md/.mdx (compiled through MDX)
+// and .html (shipped verbatim after asset processing).
+const EXT_RE = /\.(?:mdx?|html)$/;
 
 // `{name}` placeholder tokens in a filename — the slug template for a page
 // generator (e.g. `tag-{tag}.md`). The name must be a valid identifier so it
@@ -7,7 +9,7 @@ const EXT_RE = /\.mdx?$/;
 const PLACEHOLDER_RE_G = /\{([A-Za-z_$][\w$]*)\}/g;
 const PLACEHOLDER_RE = /\{([A-Za-z_$][\w$]*)\}/;
 
-export function isMdxPath(relPath) {
+export function isPagePath(relPath) {
   return EXT_RE.test(relPath);
 }
 
@@ -63,7 +65,7 @@ export function substituteFilename(filename, values, ctx = {}) {
 
 export function resolveLogicalPath(relPath) {
   if (!EXT_RE.test(relPath)) {
-    throw new Error(`Not an MDX file: ${relPath}`);
+    throw new Error(`Not a page source file: ${relPath}`);
   }
   const withoutExt = relPath.replace(EXT_RE, '');
   const segments = withoutExt.split('/').filter((s) => s.length > 0);

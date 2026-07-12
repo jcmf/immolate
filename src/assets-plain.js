@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { VALID_PLACEMENTS } from './asset-rules.js';
 import { rewriteCssUrls } from './css-urls.js';
 import { attachContext, currentStack } from './render-context.js';
 
@@ -8,7 +9,6 @@ const TOKEN_RE = /__XTATIC_ASSET_[a-f0-9]+__/g;
 // idempotent when a manual asset() result flows into a whitelisted attribute.
 const ANY_XTATIC_TOKEN_RE = /^__XTATIC_(?:ASSET|IMG|STYLE|FONT)_[a-f0-9]+__$/;
 const EXT_RE = /\.([a-z0-9]+)$/i;
-const VALID_PLACEMENTS = new Set(['inline', 'shared', 'co-located', 'auto']);
 
 const MIME = {
   png: 'image/png',

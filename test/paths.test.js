@@ -29,8 +29,8 @@ test('nested non-index files keep the file basename as the last segment', () => 
 });
 
 test('rejects paths without an .md or .mdx extension', () => {
-  assert.throws(() => resolveLogicalPath('foo.txt'), /Not an MDX file/);
-  assert.throws(() => resolveLogicalPath('foo'), /Not an MDX file/);
+  assert.throws(() => resolveLogicalPath('foo.txt'), /Not a page source file/);
+  assert.throws(() => resolveLogicalPath('foo'), /Not a page source file/);
 });
 
 test('resolveLogicalPaths returns one entry per input', () => {

@@ -43,7 +43,7 @@ Shared, content-addressed assets (the hashed images, stylesheets, and fonts that
 
 ## How input maps to output
 
-`xtatic` walks `INPUT_DIR/**/*.{md,mdx}`. Each file becomes `OUTPUT_DIR/<path>/index.html`. The four forms below are **equivalent and mutually exclusive** — putting two of them in the same input tree is an error:
+`xtatic` walks `INPUT_DIR/**/*.{md,mdx,html}`. Each file becomes `OUTPUT_DIR/<path>/index.html` (for `.html` inputs, see [HTML pages](#html-pages)). The four forms below are **equivalent and mutually exclusive** — putting two of them in the same input tree is an error:
 
 | Input                                | Output                            |
 | ------------------------------------ | --------------------------------- |
@@ -159,6 +159,20 @@ title: Index
 
 Identifiers shadowed by parameters or local declarations resolve normally; it's only otherwise-unbound identifiers that fall through to the module object.
 
+## HTML pages
+
+A `.html` file in the input tree is a page too — handy for dropping in hand-written or legacy pages. It maps to the same output location a `.md` at that path would (`foo/bar.html` → `foo/bar/index.html`), participates in the module tree (`name`, `title`, `date`, `childPages`, `url`), and its [asset references](#asset-references) go through the same pipeline as tags rendered from markdown: `<img src>`, `<link rel="stylesheet" href>`, `<script src>`, `<a href="./other.md">` page links, `data-xtatic-placement`, and the rest of the whitelist all behave identically. Path resolution is the same, too — a leading `/` roots at `TOP_DIR`, everything else resolves against the `.html` file's own directory.
+
+Everything *outside* the rewritten attribute values ships byte-for-byte: comments, doctype, whitespace, and formatting are preserved (a rewritten attribute is re-emitted double-quoted).
+
+Differences from `.md`/`.mdx`:
+
+- **No compilation.** The file isn't MDX — no JSX, no frontmatter, no imports, no exports (so no `outputPath` override, and a `{placeholder}` filename can't be a page generator).
+- **No layout.** The file is taken to be a complete document, so the `defaultLayout` walk skips it and `layout:` can't be set on it.
+- **`title` defaults from `<title>`.** A non-empty `<title>` in the document becomes the page's `title` (visible to a parent iterating `childPages`); otherwise the usual filename-derived default applies. `date` still comes from a `YYYY-MM-DD` filename prefix.
+
+Other pages can link to it by source path (`<a href="./legacy.html">` → `legacy/`) or import it (`import legacy from './legacy.html'`) to read its `url`/`title` — the default import binds the module object, like `.md`.
+
 ## Layouts
 
 A layout wraps another module's content. It's just an MDX module whose `default` render function reads the wrapped module from `props.children`:
@@ -203,7 +217,7 @@ Any module can be used as a JSX tag. The runtime calls its `default(props)` and 
 
 ## Imports
 
-An MDX file can import other `.md`, `.mdx`, and `.js` files. Specs use file paths *with* extensions, either relative to the importing file or absolute-from-`TOP_DIR` (leading `/`):
+An MDX file can import other `.md`, `.mdx`, `.js`, and `.html` files. Specs use file paths *with* extensions, either relative to the importing file or absolute-from-`TOP_DIR` (leading `/`):
 
 ```mdx
 import About from './about.mdx';
@@ -215,7 +229,7 @@ Absolute imports are rooted at `TOP_DIR`, not `INPUT_DIR`, so shared components 
 
 **Default import asymmetry.** `import X from spec`:
 
-- For `.md`/`.mdx`, `X` is the *whole module object* (same shape as a `childPages` entry). Use `X` as a JSX tag, read frontmatter as `X.title`, etc.
+- For `.md`/`.mdx` (and `.html` pages), `X` is the *whole module object* (same shape as a `childPages` entry). Use `X` as a JSX tag, read frontmatter as `X.title`, etc.
 - For `.js`, `X` is the module's ESM `default` export — standard JS semantics.
 
 Named (`import { a, b } from ...`) and namespace (`import * as X from ...`) imports work for both, with the obvious meaning.

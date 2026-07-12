@@ -5,11 +5,13 @@ import { html as htmlBuiltin, makeReadfile } from './builtins.js';
 import { BUILTIN_SPECS } from './builtins-registry.js';
 import { compileJsxSource } from './compile-jsx.js';
 import { compileSource } from './compile.js';
+import { processHtml } from './html.js';
 import { resolveLogicalPath, substituteFilename } from './paths.js';
 
 const MDX_EXT_RE = /\.mdx?$/;
 const JSX_EXT_RE = /\.jsx$/;
 const JS_EXT_RE = /\.js$/;
+const HTML_EXT_RE = /\.html$/;
 
 function compileErrorPosition(cause) {
   const line =
@@ -106,6 +108,10 @@ export function isJs(absPath) {
   return JS_EXT_RE.test(absPath);
 }
 
+export function isHtml(absPath) {
+  return HTML_EXT_RE.test(absPath);
+}
+
 // Keys never inherited by a generated page from its template: tool-derived /
 // positional (`name`, `childPages`, `url`), the trigger export (`getPages`), the
 // render entry point (`default`, rebound per child), and `outputPath` (which
@@ -123,6 +129,7 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
   const mdxModules = new Map();
   const jsxModules = new Map();
   const jsModules = new Map();
+  const htmlModules = new Map();
   // The compiled, pre-self-injection default for each loaded .md/.mdx module,
   // keyed by absPath. `loadMdx` wraps `mm.default` to inject `__xtatic_self: mm`;
   // a page generator needs the unwrapped function so each synthetic child can
@@ -223,6 +230,35 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
     stampPath(mm, dp);
     stampUrl(mm, absPath, dp);
     jsxModules.get(absPath).status = 'done';
+    return mm;
+  }
+
+  // A .html input file is a page whose rendered output is the file itself,
+  // with whitelisted asset/link references routed through the plain-asset
+  // pipeline (tokens spliced into the source; everything else ships verbatim).
+  // No MDX compile, no frontmatter, no exports — and no layout: the file is
+  // taken to be a complete document, so `layout` is pinned to null (not
+  // undefined) to opt out of assembleTree's defaultLayout walk. A non-empty
+  // <title> defaults the page's `title` the way frontmatter would.
+  async function loadHtml(absPath) {
+    if (htmlModules.has(absPath)) return htmlModules.get(absPath).mm;
+    const mm = {};
+    htmlModules.set(absPath, { mm, status: 'processing' });
+    const source = await fs.promises.readFile(absPath, 'utf8');
+    const dp = displayPath(absPath);
+    const asset = plainAssetRegistry
+      ? plainAssetRegistry.forImporter(absPath)
+      : (value) => value;
+    const { html, title } = processHtml(source, {
+      asset,
+      importerDisplay: dp,
+    });
+    if (title !== undefined) mm.title = title;
+    mm.layout = null;
+    mm.default = () => ({ html });
+    stampPath(mm, dp);
+    stampUrl(mm, absPath, dp);
+    htmlModules.get(absPath).status = 'done';
     return mm;
   }
 
@@ -407,11 +443,12 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
       if (isMdxLike(absPath)) return await loadMdx(absPath);
       if (isJsx(absPath)) return await loadJsx(absPath);
       if (isJs(absPath)) return await loadJs(absPath);
+      if (isHtml(absPath)) return await loadHtml(absPath);
       throw new Error(
-        `Unsupported import "${spec}" from "${displayPath(importerAbsPath)}": only .md, .mdx, .jsx, and .js are supported.`,
+        `Unsupported import "${spec}" from "${displayPath(importerAbsPath)}": only .md, .mdx, .jsx, .js, and .html are supported.`,
       );
     };
   }
 
-  return { loadMdx, loadJsx, loadJs, expandTemplate, mdxModules, jsxModules, jsModules, resolveSpec };
+  return { loadMdx, loadJsx, loadJs, loadHtml, expandTemplate, mdxModules, jsxModules, jsModules, htmlModules, resolveSpec };
 }

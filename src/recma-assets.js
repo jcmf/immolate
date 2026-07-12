@@ -12,52 +12,36 @@
 // rewritten calls inside _createMdxContent (where `arguments` refers to props)
 // can resolve via lexical capture.
 
-const VALID_PLACEMENTS = new Set(['inline', 'shared', 'co-located', 'auto']);
+import {
+  ASSET_TAG_ATTRS,
+  VALID_PLACEMENTS,
+  classifyLinkRel,
+} from './asset-rules.js';
+
 const JSX_CALLEES = new Set(['_jsx', '_jsxs', '_jsxDEV', 'jsx', 'jsxs', 'jsxDEV']);
 
-const ASSET_LINK_RELS = new Set([
-  'stylesheet',
-  'icon',
-  'shortcut',
-  'apple-touch-icon',
-  'apple-touch-icon-precomposed',
-  'mask-icon',
-  'preload',
-  'prefetch',
-  'modulepreload',
-  'manifest',
-]);
-
-function linkRelTokens(propsNode) {
+function linkRel(propsNode) {
   const relProp = findProp(propsNode, 'rel');
   if (!relProp || !isStringLiteral(relProp.value)) return null;
-  return relProp.value.value.toLowerCase().split(/\s+/);
+  return relProp.value.value;
 }
 
 function linkRelIsAsset(propsNode) {
-  const tokens = linkRelTokens(propsNode);
-  if (!tokens) return false;
-  return tokens.some((r) => ASSET_LINK_RELS.has(r));
+  return classifyLinkRel(linkRel(propsNode)).isAsset;
 }
 
 function linkKind(propsNode) {
-  const tokens = linkRelTokens(propsNode);
-  if (tokens && tokens.includes('stylesheet')) return 'stylesheet';
-  return null;
+  return classifyLinkRel(linkRel(propsNode)).kind;
 }
 
 // Each rule lists attributes to rewrite, optionally guarded by a predicate
 // over the props ObjectExpression. Bare-list shorthand (e.g. ['src']) is
-// treated as { attrs: ['src'] } with no predicate.
+// treated as { attrs: ['src'] } with no predicate. The tag/attr data comes
+// from the shared whitelist in asset-rules.js; only <link> needs the
+// AST-level rel guard layered on.
 const DEFAULT_TAG_RULES = {
-  img: ['src'],
-  script: ['src'],
-  source: ['src'],
-  audio: ['src'],
-  video: ['src', 'poster'],
-  link: { attrs: ['href'], predicate: linkRelIsAsset, getKind: linkKind },
-  a: ['href'],
-  area: ['href'],
+  ...ASSET_TAG_ATTRS,
+  link: { attrs: ASSET_TAG_ATTRS.link, predicate: linkRelIsAsset, getKind: linkKind },
 };
 
 function normalizeRule(rule) {

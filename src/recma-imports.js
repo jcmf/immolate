@@ -1,5 +1,8 @@
-const SPEC_RE = /^(?:\.\.?\/|\/).+\.(mdx?|jsx?)$|^xtatic:[a-z][a-z0-9-]*$/;
-const MDX_LIKE_RE = /\.mdx?$/;
+const SPEC_RE = /^(?:\.\.?\/|\/).+\.(mdx?|jsx?|html)$|^xtatic:[a-z][a-z0-9-]*$/;
+// Specs whose default import binds the whole module object rather than
+// mm.default: .md/.mdx (the documented divergence from ESM) and .html (the
+// module object is the page — url/title/childPages — with no user exports).
+const MDX_LIKE_RE = /\.(?:mdx?|html)$/;
 
 function id(name) {
   return { type: 'Identifier', name };
