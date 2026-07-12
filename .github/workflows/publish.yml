@@ -29,7 +29,9 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          # npm@latest (12.x) requires node >= 22; the test job still runs
+          # on node 20, the package's declared minimum.
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
       # npm >= 11.5.1 is required for trusted publishing (OIDC).
