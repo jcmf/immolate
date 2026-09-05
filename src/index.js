@@ -59,6 +59,14 @@ function computeOutPath(mm, segments, outputDir, pageLabel) {
 }
 
 function renderTree(mm, segments, outputDir, topDir, assetsDirAbs, pages, seen) {
+  // A synthetic node (directory with no index.md) groups its children in the
+  // tree but has no source module and emits no output file.
+  if (mm.__xtatic_synthetic) {
+    for (const child of mm.childPages) {
+      renderTree(child, [...segments, child.name], outputDir, topDir, assetsDirAbs, pages, seen);
+    }
+    return;
+  }
   const page = segments.length ? segments.join('/') : '/';
   const outPath = computeOutPath(mm, segments, outputDir, page);
   // Source-tree position of this page, used by the plain-asset registry to map

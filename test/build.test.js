@@ -28,11 +28,19 @@ test('all four equivalent input forms produce the same output path', async () =>
   }
 });
 
-test('errors when no root index.md/.mdx exists, naming the searched directory', async () => {
+test('a build without a root index.md works: children render, no root index.html', async () => {
   const fs = makeFs({ '/in/foo.md': '# F\n' });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/foo/index.html', 'utf8');
+  assert.match(html, /<h1>F<\/h1>/);
+  assert.equal(fs.existsSync('/out/index.html'), false);
+});
+
+test('errors when the input dir contains no page sources at all', async () => {
+  const fs = makeFs({ '/in/notes.txt': 'not a page\n' });
   await assert.rejects(
     () => build({ inputDir: '/in', outputDir: '/out', fs }),
-    /No root module found in "\/in": create index\.md or index\.mdx there\./,
+    /No page sources found in "\/in": create index\.md or index\.mdx there\./,
   );
 });
 
@@ -82,15 +90,34 @@ test('a top-level export that throws is reported as an evaluation error, not a c
   );
 });
 
-test('an orphan module names its source file and suggests the missing index', async () => {
+test('a directory without index.md gets a synthetic node: leaf renders, no dir index.html', async () => {
   const fs = makeFs({
-    '/in/index.md': '# r\n',
-    '/in/missing-parent/leaf.md': '# leaf\n',
+    '/in/index.md':
+      '# r\n\n<ul>{childPages.map((c) => <li key={c.name}>{c.title}</li>)}</ul>\n',
+    '/in/blog/2020-01-23-first-post.md': '# leaf\n',
   });
-  await assert.rejects(
-    () => build({ inputDir: '/in', outputDir: '/out', fs }),
-    /Module "missing-parent\/leaf\.md" has no parent module at "missing-parent": create missing-parent\/index\.md or missing-parent\/index\.mdx\./,
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const leaf = await fs.promises.readFile(
+    '/out/blog/2020-01-23-first-post/index.html',
+    'utf8',
   );
+  assert.match(leaf, /<h1>leaf<\/h1>/);
+  assert.equal(fs.existsSync('/out/blog/index.html'), false);
+  // The synthetic node appears in the root's childPages with title defaults.
+  const rootHtml = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(rootHtml, /<li>Blog<\/li>/);
+});
+
+test("a synthetic directory node inherits nothing but passes defaultLayout through to its children", async () => {
+  const fs = makeFs({
+    '/top/pages/index.md': '---\ndefaultLayout: base\n---\n# r\n',
+    '/top/pages/section/leaf.md': '# leaf\n',
+    '/top/layouts/base.mdx': '<main>{props.children}</main>\n',
+  });
+  await build({ inputDir: '/top/pages', outputDir: '/out', topDir: '/top', fs });
+  const leaf = await fs.promises.readFile('/out/section/leaf/index.html', 'utf8');
+  assert.match(leaf, /<main>.*<h1>leaf<\/h1>.*<\/main>/s);
+  assert.equal(fs.existsSync('/out/section/index.html'), false);
 });
 
 test('errors on collision between two equivalent forms', async () => {

@@ -24,33 +24,50 @@ function nameDefaults(name) {
   return { date, title: titleStr };
 }
 
+// A tree position with pages beneath it but no source file of its own (a
+// directory without index.md, possibly the root). The node exists only to
+// group its children: it joins its parent's childPages with the usual
+// name/title/date defaults, but renders no output file. The marker is
+// non-enumerable so it stays out of recma-self's bare-identifier set and
+// {...page} spreads. Fresh objects are created per assembleTree call — safe
+// for buildImpl's two-pass assembly because nothing can hold a reference to a
+// synthetic node across passes (they have no source file to import).
+function syntheticModule() {
+  const mm = {};
+  Object.defineProperty(mm, '__xtatic_synthetic', { value: true });
+  return mm;
+}
+
 export function assembleTree(entries, options = {}) {
-  const byKey = new Map();
-  let root = null;
-  for (const entry of entries) {
-    byKey.set(entry.segments.join('/'), entry);
-    if (entry.segments.length === 0) root = entry;
-  }
-  if (!root) {
+  if (entries.length === 0) {
     const where = options.inputDir ? ` in "${options.inputDir}"` : '';
     throw new Error(
-      `No root module found${where}: create index.md or index.mdx there.`,
+      `No page sources found${where}: create index.md or index.mdx there.`,
     );
   }
-
+  const byKey = new Map();
   for (const entry of entries) {
+    byKey.set(entry.segments.join('/'), entry);
+  }
+  const all = [...entries];
+  for (const entry of entries) {
+    for (let depth = entry.segments.length - 1; depth >= 0; depth--) {
+      const key = entry.segments.slice(0, depth).join('/');
+      if (byKey.has(key)) continue;
+      const synth = { segments: entry.segments.slice(0, depth), mm: syntheticModule() };
+      byKey.set(key, synth);
+      all.push(synth);
+    }
+  }
+  const root = byKey.get('');
+
+  for (const entry of all) {
     entry.mm.childPages = [];
   }
 
-  for (const entry of entries) {
+  for (const entry of all) {
     if (entry.segments.length === 0) continue;
-    const parentKey = entry.segments.slice(0, -1).join('/');
-    const parent = byKey.get(parentKey);
-    if (!parent) {
-      throw new Error(
-        `Module "${entry.relPath}" has no parent module at "${parentKey}": create ${parentKey}/index.md or ${parentKey}/index.mdx.`,
-      );
-    }
+    const parent = byKey.get(entry.segments.slice(0, -1).join('/'));
     const name = entry.segments[entry.segments.length - 1];
     entry.mm.name = name;
     const defaults = nameDefaults(name);
@@ -63,13 +80,17 @@ export function assembleTree(entries, options = {}) {
     parent.mm.childPages.push(entry.mm);
   }
 
-  for (const entry of entries) {
+  for (const entry of all) {
     entry.mm.childPages.sort((a, b) =>
       a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
     );
   }
 
-  for (const entry of entries) {
+  for (const entry of all) {
+    // Synthetic nodes never render, so a layout would be dead weight; the
+    // defaultLayout walk below already skips through them (byKey lookup finds
+    // no defaultLayout on a synthetic ancestor and keeps climbing).
+    if (entry.mm.__xtatic_synthetic) continue;
     if (entry.mm.layout !== undefined) continue;
     for (let depth = entry.segments.length; depth >= 0; depth--) {
       const ancestor = byKey.get(entry.segments.slice(0, depth).join('/'));

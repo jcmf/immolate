@@ -14,8 +14,18 @@ function child(parent, name) {
   return parent.childPages.find((c) => c.name === name);
 }
 
-test('errors when no root module is provided', () => {
-  assert.throws(() => assembleTree([entry(['foo'])]), /No root module found/);
+test('errors when there are no entries at all', () => {
+  assert.throws(() => assembleTree([]), /No page sources found/);
+});
+
+test('a missing root is synthesized: it groups children but is marked synthetic', () => {
+  const root = assembleTree([entry(['foo'])]);
+  assert.equal(root.__xtatic_synthetic, true);
+  assert.equal(root.default, undefined);
+  assert.deepEqual(
+    root.childPages.map((c) => c.name),
+    ['foo'],
+  );
 });
 
 test('returns the root module with empty childPages for a single-file tree', () => {
@@ -104,11 +114,45 @@ test('a module with no layout and no ancestor defaultLayout ends up with layout=
   assert.equal(child(root, 'foo').layout, undefined);
 });
 
-test('errors when a non-root module has no parent, naming source file and fix', () => {
-  assert.throws(
-    () => assembleTree([entry([]), entry(['missing-parent', 'leaf'])]),
-    /Module "missing-parent\/leaf\.md" has no parent module at "missing-parent": create missing-parent\/index\.md or missing-parent\/index\.mdx\./,
+test('a missing intermediate parent is synthesized with name/title defaults', () => {
+  const root = assembleTree([entry([]), entry(['missing-parent', 'leaf'])]);
+  const synth = child(root, 'missing-parent');
+  assert.equal(synth.__xtatic_synthetic, true);
+  assert.equal(synth.name, 'missing-parent');
+  assert.equal(synth.title, 'Missing Parent');
+  assert.deepEqual(
+    synth.childPages.map((c) => c.name),
+    ['leaf'],
   );
+});
+
+test('several missing levels are all synthesized', () => {
+  const root = assembleTree([entry([]), entry(['a', 'b', 'c'])]);
+  const a = child(root, 'a');
+  const b = child(a, 'b');
+  assert.equal(a.__xtatic_synthetic, true);
+  assert.equal(b.__xtatic_synthetic, true);
+  assert.deepEqual(
+    b.childPages.map((c) => c.name),
+    ['c'],
+  );
+});
+
+test('the synthetic marker is non-enumerable (stays out of spreads)', () => {
+  const root = assembleTree([entry(['foo'])]);
+  assert.equal({ ...root }.__xtatic_synthetic, undefined);
+});
+
+test('defaultLayout inheritance passes through a synthetic node', () => {
+  const rootTpl = { default: () => ({ html: '' }) };
+  const root = assembleTree([
+    entry([], { defaultLayout: rootTpl }),
+    entry(['section', 'leaf']),
+  ]);
+  const section = child(root, 'section');
+  assert.equal(section.__xtatic_synthetic, true);
+  assert.equal(section.layout, undefined);
+  assert.equal(child(section, 'leaf').layout, rootTpl);
 });
 
 test('childPages is a real Array (supports .map, .find, .length, etc.)', () => {

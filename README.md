@@ -56,6 +56,8 @@ Shared, content-addressed assets (the hashed images, stylesheets, and fonts that
 
 `INPUT_DIR/index.md` (or `.mdx`) is the root and writes to `OUTPUT_DIR/index.html`.
 
+A directory doesn't need an `index.md` of its own. A position in the tree that has pages beneath it but no source file (including the root) becomes a *grouping node*: it appears in its parent's `childPages` with the usual name-derived `title`/`date` defaults so listings can still show it, and `defaultLayout` inheritance passes through it — but no output file is written there, and since there's no page to link to, its `url` is `undefined` (check for it, or link to a child instead).
+
 A page can override its destination by exporting `outputPath` (frontmatter or a named `export`) — useful for `/feed.xml`, `/sitemap.xml`, `/robots.txt`, etc.:
 
 ```mdx
@@ -204,6 +206,8 @@ After compilation, every page is a module object exposing:
 - `name` — the module's last path segment (set on every module that's a child of another; the root has no `name`)
 - `url` — a link to this page's rendered output. The natural way to link a `childPages` entry: `<a href={p.url}>`. It resolves to a clean directory URL relative to whatever page the link lands on, with `outputPath` overrides honored (`feed.xml` rather than `feed/`). Because it's the same kind of deferred token [`asset`](#builtins) returns, it works wherever it lands — a whitelisted attribute, a custom component prop, even bare text. Tool-owned: exporting your own `url` is overridden.
 - frontmatter keys + any named exports
+
+A directory without its own `index.md` shows up in this tree as a grouping node (see [How input maps to output](#how-input-maps-to-output)): it has `childPages`, `name`, and the name-derived `title`/`date` defaults, but no `default` render function and no `url`.
 
 `childPages` is a plain JavaScript array, so `mm.childPages.map(...)`, `.find(...)`, `.length`, and `for (const child of mm.childPages) { ... }` all work directly. Linking the children is just:
 
