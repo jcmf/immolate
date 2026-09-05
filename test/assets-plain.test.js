@@ -532,6 +532,24 @@ test('passthrough hrefs (mailto, http, anchors) are left untouched', async () =>
   assert.match(html, /href="#top"/);
 });
 
+test('any scheme-prefixed href (javascript:, sms:, blob:) passes through', async () => {
+  const fs = makeFs({
+    '/in/index.md':
+      '<a href="javascript:void(0)">js</a>\n\n' +
+      '<a href="sms:+15555550100">sms</a>\n\n' +
+      '<a href="blob:https://example.com/abc">blob</a>\n\n' +
+      '<a href="./a:b.pdf">colon-in-path</a>\n',
+    '/in/a:b.pdf': 'pdf',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /href="javascript:void\(0\)"/);
+  assert.match(html, /href="sms:\+15555550100"/);
+  assert.match(html, /href="blob:https:\/\/example\.com\/abc"/);
+  // a relative path containing a colon is still resolved as a file
+  assert.match(html, /href="data:application\/pdf;base64,/);
+});
+
 test('plain <area href> to another page is rewritten', async () => {
   const fs = makeFs({
     '/in/index.md':

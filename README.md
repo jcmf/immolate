@@ -265,7 +265,7 @@ The whitelisted (tag, attribute) pairs are:
 - `link.href` — only when `rel` is `stylesheet`, `icon`, `shortcut`, `apple-touch-icon`(`-precomposed`), `mask-icon`, `preload`, `prefetch`, `modulepreload`, or `manifest`. Other rels (`canonical`, `alternate`, …) are left untouched since their hrefs aren't file references.
 - `a.href`, `area.href` — see [Linking between pages](#linking-between-pages) below.
 
-Values that aren't files — `data:`, `http(s):`, `//`, `#`, `mailto:`, `tel:`, and empty strings — pass through verbatim, so a `<link rel="stylesheet" href="https://…">` to a CDN is unchanged. Dynamic values like `<img src={x}>` are wrapped at runtime, so the same passthrough applies after evaluation.
+Values that aren't files — anything with a URL scheme (`data:`, `http(s):`, `mailto:`, `tel:`, `javascript:`, …), `//`, `#`, and empty strings — pass through verbatim, so a `<link rel="stylesheet" href="https://…">` to a CDN is unchanged. Dynamic values like `<img src={x}>` are wrapped at runtime, so the same passthrough applies after evaluation.
 
 Path resolution matches `<Image>`/`<Style>`/`readfile`: a leading `/` is rooted at `TOP_DIR`; everything else is relative to the importing file's directory. A trailing `?query` or `#fragment` is split off before resolving and re-attached to the rewritten URL.
 
@@ -280,7 +280,7 @@ Path resolution matches `<Image>`/`<Style>`/`readfile`: a leading `/` is rooted 
 
 Because each page renders to its own `dir/index.html`, the input→output path differs: a link from `a.md` to its source sibling `./b.md` comes out as `../b/` (both pages now live one directory deep). Targets are linked to the directory (clean URL, e.g. `about/`); a page that overrides its location with `outputPath` (e.g. `/feed.xml`) is linked to that exact file. Fragments and queries are preserved (`about/#setup`).
 
-A relative or `/`-rooted href that points at a **non-page** file (`./report.pdf`, `./photo.jpg`, …) falls through to the normal asset pipeline — it's content-hashed and copied/inlined like any other asset. Markdown link syntax `[text](./about.md)` (which lowers to `<a>`) is covered too. Passthrough values (`mailto:`, `tel:`, `http(s):`, `#anchor`, …) are left untouched.
+A relative or `/`-rooted href that points at a **non-page** file (`./report.pdf`, `./photo.jpg`, …) falls through to the normal asset pipeline — it's content-hashed and copied/inlined like any other asset. Markdown link syntax `[text](./about.md)` (which lowers to `<a>`) is covered too. Passthrough values (any scheme like `mailto:`, `tel:`, `javascript:`, `http(s):`, plus `#anchor`, …) are left untouched.
 
 When you already hold a page *module* rather than a path string — e.g. iterating `childPages` — link it through its [`url` property](#the-module-tree) (`<a href={p.url}>`) instead. It produces the same rewritten output URL.
 

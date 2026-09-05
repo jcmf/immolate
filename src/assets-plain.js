@@ -41,16 +41,14 @@ function makeToken() {
   return `__XTATIC_ASSET_${crypto.randomBytes(12).toString('hex')}__`;
 }
 
+// Anything carrying a URL scheme (`https:`, `mailto:`, `tel:`, `javascript:`,
+// `data:`, `blob:`, …) is not a file reference. Per RFC 3986 a scheme is
+// ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ) followed by ":", so `./a:b.png`
+// (starts with `.`) and `/x:y` (starts with `/`) are still paths.
+const SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
+
 function isPassthroughUrl(s) {
-  return (
-    s.startsWith('data:') ||
-    s.startsWith('http://') ||
-    s.startsWith('https://') ||
-    s.startsWith('//') ||
-    s.startsWith('#') ||
-    s.startsWith('mailto:') ||
-    s.startsWith('tel:')
-  );
+  return SCHEME_RE.test(s) || s.startsWith('//') || s.startsWith('#');
 }
 
 function mimeFromExt(ext) {

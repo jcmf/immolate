@@ -3,14 +3,11 @@ import path from 'node:path';
 const URL_RE = /url\(([^)]+)\)/g;
 const EXT_RE = /\.([a-z0-9]+)$/i;
 
+// Same rule as assets-plain.js: any scheme-prefixed value is not a file.
+const SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
+
 function isPassthroughUrl(url) {
-  return (
-    url.startsWith('data:') ||
-    url.startsWith('http://') ||
-    url.startsWith('https://') ||
-    url.startsWith('//') ||
-    url.startsWith('#')
-  );
+  return SCHEME_RE.test(url) || url.startsWith('//') || url.startsWith('#');
 }
 
 function unquote(inner) {
