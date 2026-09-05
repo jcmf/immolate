@@ -11,15 +11,29 @@ import { attachContext, formatContext, withFrame } from './render-context.js';
 import { createOutputWriter } from './output.js';
 import { createRegistry } from './registry.js';
 import { wrapZipFs } from './zipfs.js';
+import {
+  collectVerbatimFiles,
+  hasVerbatimMarker,
+  verbatimOutPath,
+  writeVerbatimFiles,
+} from './verbatim.js';
 
 const PAGE_EXT_RE = /\.(?:mdx?|html)$/;
 const HTML_EXT_RE = /\.html$/;
 
+// Walk inputDir for page sources. A directory carrying a `.xtatic-verbatim`
+// marker is not descended for pages: every file under it is collected into
+// `verbatim` instead, to be copied to the output as-is (see src/verbatim.js).
 async function walkPages(fs, root) {
   const results = [];
+  const verbatim = [];
   async function recurse(absDir, relDir) {
     const entries = await fs.promises.readdir(absDir, { withFileTypes: true });
     entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    if (hasVerbatimMarker(entries)) {
+      verbatim.push(...(await collectVerbatimFiles(fs, absDir, relDir)));
+      return;
+    }
     for (const ent of entries) {
       const childAbs = `${absDir}/${ent.name}`;
       const childRel = relDir === '' ? ent.name : `${relDir}/${ent.name}`;
@@ -31,7 +45,7 @@ async function walkPages(fs, root) {
     }
   }
   await recurse(root, '');
-  return results;
+  return { pages: results, verbatim };
 }
 
 function computeOutPath(mm, segments, outputDir, pageLabel) {
@@ -83,8 +97,11 @@ function renderTree(mm, segments, outputDir, topDir, assetsDirAbs, pages, seen) 
   }
   const prior = seen.get(outPath);
   if (prior !== undefined) {
+    // `prior` is either another page's label or a `verbatim file "…"` label
+    // seeded by buildImpl before rendering began.
+    const isVerbatim = prior.startsWith('verbatim file ');
     throw new Error(
-      `Two pages write to the same output path "${outPath}": "${prior}" and "${page}".`,
+      `Two ${isVerbatim ? 'sources' : 'pages'} write to the same output path "${outPath}": ${isVerbatim ? prior : `"${prior}"`} and "${page}".`,
     );
   }
   seen.set(outPath, page);
@@ -264,7 +281,21 @@ async function buildImpl({
   // this build didn't write (so renames/deletes still can't leave stale files).
   const writer = createOutputWriter({ fs, outputDir });
   fs = wrapZipFs(fs);
-  const files = await walkPages(fs, inputDir);
+  const { pages: files, verbatim } = await walkPages(fs, inputDir);
+  // Verbatim files claim their output paths before any page renders, so a
+  // page landing on the same path (pages/about.md vs. a verbatim
+  // pages/about/index.html) is a hard error, and none may sit under assetsDir.
+  const seen = new Map();
+  for (const v of verbatim) {
+    v.outPath = verbatimOutPath(outputDir, v.relPath);
+    if (isInsideOrSame(assetsDirAbs, v.outPath)) {
+      throw new Error(
+        `Verbatim file "${v.relPath}" writes to "${v.outPath}", which is inside the generated assets directory "${assetsDirAbs}". ` +
+          `Move the file, or set a different xtatic.assetsDir.`,
+      );
+    }
+    seen.set(v.outPath, `verbatim file "${v.relPath}"`);
+  }
   // Page generators are files whose name carries `{placeholder}` tokens (e.g.
   // tag-{tag}.md); they expand into one page per item their `getPages()` returns
   // instead of rendering at their own slot. Everything else is an ordinary page.
@@ -372,7 +403,7 @@ async function buildImpl({
     });
   }
   const pages = [];
-  renderTree(root, [], outputDir, topDir, assetsDirAbs, pages, new Map());
+  renderTree(root, [], outputDir, topDir, assetsDirAbs, pages, seen);
   const imageSubstitute = await imageRegistry.processAll();
   const styleSubstitute = await styleRegistry.processAll();
   // Plain-asset runs before font so the font registry can ask
@@ -380,7 +411,13 @@ async function buildImpl({
   // for the CSS that reaches each page — needed by the css-static cascade
   // engine (commit 3+). Substitute composition is order-independent because
   // token namespaces are disjoint.
-  const assetSubstitute = await plainAssetRegistry.processAll(pages);
+  // Verbatim files are link targets too: <a href="./legacy/x.xml"> from a page
+  // resolves to the copied file's page-relative URL rather than re-emitting it
+  // as an asset.
+  const verbatimOutBySrc = new Map(verbatim.map((v) => [v.absPath, v.outPath]));
+  const assetSubstitute = await plainAssetRegistry.processAll(pages, {
+    verbatimOutBySrc,
+  });
   const fontSubstitute = await fontRegistry.processAll(pages, {
     cssForPage: (html) => [
       ...styleRegistry.cssForPage(html),
@@ -401,6 +438,7 @@ async function buildImpl({
       path.posix.dirname(outPath),
     );
   await writePages(pages, substitute, writer);
+  await writeVerbatimFiles({ fs, writer, entries: verbatim });
   await writer.prune();
 }
 

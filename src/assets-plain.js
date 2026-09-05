@@ -62,6 +62,12 @@ function escAttrValue(s) {
 // A page renders to `<dir>/index.html`; a link to it should point at the
 // directory (clean URL) rather than the literal index.html file. Override
 // pages (outputPath naming a real file like feed.xml) are linked as-is.
+function isLinkTarget(entry) {
+  return (
+    entry.targetPageOut !== undefined || entry.targetVerbatimOut !== undefined
+  );
+}
+
 function cleanPageUrl(rel) {
   if (rel === 'index.html') return './';
   if (rel.endsWith('/index.html')) {
@@ -159,7 +165,11 @@ export function createPlainAssetRegistry({
     return assetOutDir.startsWith(`${pageOutDir}/`);
   }
 
-  async function processAll(pages) {
+  // `verbatimOutBySrc` maps a verbatim-copied source file (see verbatim.js)
+  // to its output path; a reference to one resolves to that file's URL, with
+  // the literal filename kept (no index.html → directory cleanup — the user
+  // linked to a specific file).
+  async function processAll(pages, { verbatimOutBySrc = new Map() } = {}) {
     if (calls.length === 0) {
       return function substitute(html) {
         return html;
@@ -191,14 +201,15 @@ export function createPlainAssetRegistry({
           explicitPlacement: undefined,
           ext: (EXT_RE.exec(call.absSrc)?.[1] ?? 'bin').toLowerCase(),
           targetPageOut: pageOutBySrc.get(call.absSrc),
+          targetVerbatimOut: verbatimOutBySrc.get(call.absSrc),
         };
         bySrc.set(call.absSrc, entry);
       }
       entry.calls.push({ ...call, pageOutPath });
       entry.pages.add(pageOutPath);
-      // A link to a page resolves to that page's URL, not a copied file —
-      // placement is meaningless, so skip the placement bookkeeping.
-      if (entry.targetPageOut === undefined && call.placement && call.placement !== 'auto') {
+      // A link to a page or a verbatim file resolves to that target's URL, not
+      // a copied asset — placement is meaningless, so skip the bookkeeping.
+      if (!isLinkTarget(entry) && call.placement && call.placement !== 'auto') {
         if (
           entry.explicitPlacement &&
           entry.explicitPlacement !== call.placement
@@ -216,7 +227,7 @@ export function createPlainAssetRegistry({
 
     await Promise.all(
       [...bySrc.values()]
-        .filter((entry) => entry.targetPageOut === undefined)
+        .filter((entry) => !isLinkTarget(entry))
         .map(async (entry) => {
         try {
           try {
@@ -276,17 +287,18 @@ export function createPlainAssetRegistry({
     const stylesheetInlineTokens = new Map();
 
     for (const entry of bySrc.values()) {
-      // Link to another page: resolve to that page's output URL, relative to
-      // the linking page's own directory.
-      if (entry.targetPageOut !== undefined) {
-        const targetOut = entry.targetPageOut;
+      // Link to another page (or a verbatim file): resolve to the target's
+      // output URL, relative to the linking page's own directory.
+      if (isLinkTarget(entry)) {
+        const targetOut = entry.targetPageOut ?? entry.targetVerbatimOut;
+        const clean = entry.targetPageOut !== undefined ? cleanPageUrl : (r) => r;
         for (const call of entry.calls) {
           tokenToResolver.set(call.token, (outPath) => {
             const rel = path.posix.relative(
               path.posix.dirname(outPath),
               targetOut,
             );
-            return cleanPageUrl(rel) + call.suffix;
+            return clean(rel) + call.suffix;
           });
         }
         continue;

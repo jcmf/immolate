@@ -177,6 +177,31 @@ Differences from `.md`/`.mdx`:
 
 Other pages can link to it by source path (`<a href="./legacy.html">` → `legacy/`) or import it (`import legacy from './legacy.html'`) to read its `url`/`title` — the default import binds the module object, like `.md`.
 
+## Verbatim directories
+
+Drop an empty file named `.xtatic-verbatim` into any directory under `INPUT_DIR` and everything beneath it is copied to the output **as-is**, mirroring its source-tree position: `pages/legacy/foo/bar.html` lands at `OUTPUT_DIR/legacy/foo/bar.html`, byte-for-byte. Nothing in the subtree is parsed or rewritten — no `foo/index.html` remapping, no layout, no HTML/markdown compilation, no asset hashing or inlining, no link rewriting. This is for pre-rendered content (an old site, a generated API reference, a feed directory) that you want to keep in the one input tree without xtatic touching it.
+
+```
+pages/
+  index.md
+  legacy/
+    .xtatic-verbatim      ← marker; not copied
+    index.html            → OUTPUT_DIR/legacy/index.html
+    feed.xml              → OUTPUT_DIR/legacy/feed.xml
+    docs/intro.html       → OUTPUT_DIR/legacy/docs/intro.html
+```
+
+Rules:
+
+- **Not pages.** Verbatim files don't join the [module tree](#the-module-tree) (no `childPages` entry, `title`, `date`, or `url`), and the directory produces no node of its own. A `.md`/`.html` under the marker is just a file. `{placeholder}` filenames are literal, not generators.
+- **Link to them by source path**, like pages: `<a href="./legacy/feed.xml">`, `<img src="/pages/legacy/logo.png">`, `<link rel="stylesheet" href="./legacy/site.css">` — any [whitelisted attribute](#asset-references) whose target resolves into a verbatim directory becomes a page-relative URL to the copied file. The literal filename is kept (`legacy/index.html` is not shortened to `legacy/`), and the file isn't copied a second time into `_assets/`. Links *inside* verbatim files are not rewritten, so they must already be correct for the output layout — which they are for relative links within the subtree, since positions are mirrored.
+- **Collisions are errors.** A verbatim file and a page resolving to the same output path (`pages/about.md` alongside a verbatim `pages/about/index.html`) fails the build, as does a verbatim file landing under the [assets directory](#install--run).
+- **Lint skips the subtree**, so pre-generated `.js`/`.md` in there won't be linted as sources.
+- **Explicit processing still works.** `import`, `readfile`, and `<Image>` treat a file in a verbatim directory like any other source file; the marker only governs what the walker does with the file on its own.
+- Nested markers are harmless. A marker at the `INPUT_DIR` root makes the whole tree verbatim and fails with "No page sources found".
+
+Output is written through the same incremental writer as everything else: unchanged files keep their timestamps and files removed from the source (or a whole directory whose marker is removed) are pruned from the output.
+
 ## Layouts
 
 A layout wraps another module's content. It's just an MDX module whose `default` render function reads the wrapped module from `props.children`:
@@ -280,7 +305,7 @@ Path resolution matches `<Image>`/`<Style>`/`readfile`: a leading `/` is rooted 
 
 Because each page renders to its own `dir/index.html`, the input→output path differs: a link from `a.md` to its source sibling `./b.md` comes out as `../b/` (both pages now live one directory deep). Targets are linked to the directory (clean URL, e.g. `about/`); a page that overrides its location with `outputPath` (e.g. `/feed.xml`) is linked to that exact file. Fragments and queries are preserved (`about/#setup`).
 
-A relative or `/`-rooted href that points at a **non-page** file (`./report.pdf`, `./photo.jpg`, …) falls through to the normal asset pipeline — it's content-hashed and copied/inlined like any other asset. Markdown link syntax `[text](./about.md)` (which lowers to `<a>`) is covered too. Passthrough values (any scheme like `mailto:`, `tel:`, `javascript:`, `http(s):`, plus `#anchor`, …) are left untouched.
+A target inside a [verbatim directory](#verbatim-directories) is linked at its copied location, literal filename kept. A relative or `/`-rooted href that points at any other **non-page** file (`./report.pdf`, `./photo.jpg`, …) falls through to the normal asset pipeline — it's content-hashed and copied/inlined like any other asset. Markdown link syntax `[text](./about.md)` (which lowers to `<a>`) is covered too. Passthrough values (any scheme like `mailto:`, `tel:`, `javascript:`, `http(s):`, plus `#anchor`, …) are left untouched.
 
 When you already hold a page *module* rather than a path string — e.g. iterating `childPages` — link it through its [`url` property](#the-module-tree) (`<a href={p.url}>`) instead. It produces the same rewritten output URL.
 

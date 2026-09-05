@@ -7,6 +7,7 @@ import { flat as mdxFlat } from 'eslint-plugin-mdx';
 import globals from 'globals';
 import { BUILTIN_SPECS } from './builtins-registry.js';
 import { renderCodeFrame } from './code-frame.js';
+import { VERBATIM_MARKER } from './verbatim.js';
 import xtaticBuiltinImports from './eslint-rules/xtatic-builtin-imports.js';
 
 const SOURCE_EXT_RE = /\.(mdx?|jsx?)$/i;
@@ -98,6 +99,8 @@ function walkLintTargets(topDir, outputDir) {
       if (abs === outAbs) continue;
       if (ent.name === 'node_modules' || ent.name.startsWith('.')) continue;
       if (ent.isDirectory()) {
+        // Verbatim directories are copied as-is; their .js/.md/… aren't sources.
+        if (fs.existsSync(path.join(abs, VERBATIM_MARKER))) continue;
         recurse(abs);
       } else if (ent.isFile() && SOURCE_EXT_RE.test(ent.name)) {
         results.push(abs);

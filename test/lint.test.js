@@ -340,3 +340,19 @@ test('lint inspects generator files: a broken import is caught', () => {
   assert.match(r.stderr, /Lint failed/);
   assert.match(r.stderr, /missing\.mdx/);
 });
+
+test('lint skips directories marked .xtatic-verbatim', () => {
+  const top = setupTopDir('verbatim-skip', {
+    'pages/index.mdx': '# Hi\n',
+    'pages/legacy/.xtatic-verbatim': '',
+    // Would fail no-undef / no-unresolved if linted as a source file.
+    'pages/legacy/app.js': "import x from './missing.js';\nundefinedThing(x);\n",
+    'pages/legacy/old.md': "import Nope from './nope.mdx';\n\n<Nope />\n",
+  });
+  const r = runCli(top);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(
+    nodeFs.readFileSync(path.join(top, 'site', 'legacy', 'app.js'), 'utf8'),
+    "import x from './missing.js';\nundefinedThing(x);\n",
+  );
+});
