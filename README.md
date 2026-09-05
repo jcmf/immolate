@@ -22,6 +22,23 @@ The first positional argument is a command. The available commands are:
 
 If you invoke `xtatic` with no arguments, it runs `build` against the current directory. To build a different directory, pass it as the second argument: `xtatic build path/to/site`.
 
+### Keep going after errors
+
+By default a build stops at the first error and writes nothing (the previous output is left untouched). Pass `-k` / `--keep-going` to `build`, `watch`, `serve`, or `browse` to do the opposite: build everything that *can* be built, then report every error at once.
+
+```sh
+npx xtatic build --keep-going
+```
+
+What changes under `--keep-going`:
+
+- Every page that fails — to compile, to load an import, to resolve its layout, to render, or because an asset it references is missing or broken — is left out of the output. Everything else is written and stale files are pruned as usual, so the output reflects this build minus the broken pages (a page that used to work and now fails is *removed*, not left stale).
+- All errors are collected and printed together, numbered, each with its usual context trace, followed by the list of pages that weren't written. One underlying error is reported once even when it affects many pages: a broken layout imported by fifty pages is listed once, with all fifty in the not-written list.
+- A [lint](#lint) failure doesn't stop the build either. Both reports are printed, the lint one first.
+- The exit status is still `1` whenever anything failed.
+
+In `watch`/`serve` mode the same applies to every rebuild; the dev server's error page shows the combined report while any error remains. Programmatically, `build({ keepGoing: true })` rejects with an `AggregateError` whose `errors` holds the individual errors and whose `skippedPages` lists the pages left out.
+
 To override the input or output location, add an `xtatic` section to `TOP_DIR/package.json`:
 
 ```json
@@ -39,7 +56,7 @@ Relative paths in config are resolved against `TOP_DIR`, not the working directo
 
 `OUTPUT_DIR` is fully owned by xtatic: every build regenerates the whole site, and anything under it that the build didn't produce is deleted at the end of the run — so renames and deletions can't leave stale files behind. Don't point it at a directory that holds anything you want to keep, and don't hand-edit files inside it. As a guard against catastrophic misconfiguration, xtatic refuses to build if `outputDir` is `/`, equal to a source directory, or an ancestor of `topDir`/`inputDir`/`layoutsDir`.
 
-Within that, writes are conservative: an output file whose content is unchanged from the previous build is skipped, preserving its timestamp — friendly to `rsync`-style deploys, HTTP caching, and anything else that keys off mtimes. (A build that fails partway also leaves the previous output in place rather than half-erasing it.)
+Within that, writes are conservative: an output file whose content is unchanged from the previous build is skipped, preserving its timestamp — friendly to `rsync`-style deploys, HTTP caching, and anything else that keys off mtimes. (A build that fails partway also leaves the previous output in place rather than half-erasing it — unless you asked it to [keep going](#keep-going-after-errors), in which case whatever could be built is written and the rest pruned.)
 
 Shared, content-addressed assets (the hashed images, stylesheets, and fonts that aren't inlined or co-located) are written under `OUTPUT_DIR/_assets/`. Rename that directory with `xtatic.assetsDir` — it must be a single path segment (no `/`, `.`, or `..`). Because the build owns this directory, **a page may not write into it**: if a page's output path (whether the default `dir/index.html` or an `outputPath` override) lands inside the assets directory, the build fails with an error. Renaming `assetsDir` frees the original name for use as a page.
 

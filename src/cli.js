@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import remarkSmartypants from 'remark-smartypants';
+import { combineErrors } from './errors.js';
 import { build } from './index.js';
 import { runInit } from './init.js';
 import { runLint } from './lint.js';
@@ -13,7 +14,7 @@ import { watch } from './watch.js';
 const HELP = `xtatic — static-site generator (MDX in, plain HTML out)
 
 Usage:
-  xtatic [command] [args...]
+  xtatic [command] [options] [args...]
 
 Commands:
   init [top_dir]    Create or update top_dir/package.json: add xtatic as a
@@ -25,13 +26,31 @@ Commands:
   browse [top_dir]  Same as "serve", and open the root page in a browser.
   help              Show this help.
 
+Options (build, watch, serve, browse):
+  -k, --keep-going  Don't stop at the first error: build every page that can
+                    be built, then report every error at once. Pages that
+                    failed are left out of the output.
+
 If no command is given, "build" is run with no arguments.`;
 
 const KNOWN = new Set(['init', 'build', 'watch', 'serve', 'browse']);
+const BUILD_COMMANDS = new Set(['build', 'watch', 'serve', 'browse']);
 
-const args = process.argv.slice(2);
-const command = args[0] ?? 'build';
-const rest = args.slice(1);
+let keepGoing = false;
+const positional = [];
+for (const a of process.argv.slice(2)) {
+  if (a === '-k' || a === '--keep-going') {
+    keepGoing = true;
+  } else if (a.startsWith('-') && a !== '-') {
+    console.error(`xtatic: unknown option "${a}"`);
+    console.error('Run "xtatic help" for usage.');
+    process.exit(1);
+  } else {
+    positional.push(a);
+  }
+}
+const command = positional[0] ?? 'build';
+const rest = positional.slice(1);
 
 if (command === 'help') {
   console.log(HELP);
@@ -46,6 +65,13 @@ if (!KNOWN.has(command)) {
 
 if (rest.length > 1) {
   console.error(`Usage: xtatic ${command} [top_dir]`);
+  process.exit(1);
+}
+
+if (keepGoing && !BUILD_COMMANDS.has(command)) {
+  console.error(
+    `xtatic: --keep-going applies to ${[...BUILD_COMMANDS].join(', ')}, not "${command}".`,
+  );
   process.exit(1);
 }
 
@@ -242,6 +268,7 @@ const buildOptions = {
   assetInlineThreshold,
   autoInstall,
   fontSubset,
+  keepGoing,
   // Lint-output concern, not consumed by build() — threaded here so watch/serve
   // (which build via watch) can pass it to runLint the same way `build` does.
   codeFrameWidth,
@@ -249,8 +276,24 @@ const buildOptions = {
 
 if (command === 'build') {
   try {
-    await runLint({ topDir, outputDir, codeFrameWidth });
-    await build({ ...buildOptions, fs });
+    // With --keep-going a lint failure doesn't stop the build either: hold
+    // it, build anyway, and report both.
+    let lintError = null;
+    try {
+      await runLint({ topDir, outputDir, codeFrameWidth });
+    } catch (e) {
+      if (!keepGoing) throw e;
+      lintError = e;
+    }
+    let buildError = null;
+    try {
+      await build({ ...buildOptions, fs });
+    } catch (e) {
+      if (!keepGoing) throw e;
+      buildError = e;
+    }
+    const combined = combineErrors(lintError, buildError);
+    if (combined) throw combined;
   } catch (e) {
     if (process.env.XTATIC_DEBUG) throw e;
     console.error(e.message);

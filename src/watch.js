@@ -1,11 +1,12 @@
 import * as fs from 'node:fs';
 import path from 'node:path';
+import { combineErrors } from './errors.js';
 import { build } from './index.js';
 import { runLint } from './lint.js';
 import { color, log, warn } from './log.js';
 
 export async function watch({ buildOptions, debounceMs = 100 }) {
-  const { topDir, outputDir, codeFrameWidth } = buildOptions;
+  const { topDir, outputDir, codeFrameWidth, keepGoing = false } = buildOptions;
   const state = { error: null };
 
   let building = false;
@@ -30,10 +31,26 @@ export async function watch({ buildOptions, debounceMs = 100 }) {
     log(color('dim', trigger ? `${trigger} changed — building…` : 'building…'));
     const start = Date.now();
     try {
-      await runLint({ topDir, outputDir, codeFrameWidth });
+      // Under keep-going a lint failure is held back rather than thrown, the
+      // build runs anyway, and the two are reported together.
+      let lintError = null;
+      try {
+        await runLint({ topDir, outputDir, codeFrameWidth });
+      } catch (e) {
+        if (!keepGoing) throw e;
+        lintError = e;
+      }
       // reloadJs: bust Node's per-URL import() cache for .js files so edits to
       // them are picked up across rebuilds (see loadJs in registry.js).
-      await build({ ...buildOptions, fs, reloadJs: true });
+      let buildError = null;
+      try {
+        await build({ ...buildOptions, fs, reloadJs: true });
+      } catch (e) {
+        if (!keepGoing) throw e;
+        buildError = e;
+      }
+      const combined = combineErrors(lintError, buildError);
+      if (combined) throw combined;
       state.error = null;
       log(color('green', `built in ${Date.now() - start}ms`));
     } catch (e) {

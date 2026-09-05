@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { createAssetRegistry } from './assets.js';
+import { createErrorCollector, makeBuildError } from './errors.js';
 import { createPlainAssetRegistry } from './assets-plain.js';
 import { createFontRegistry } from './font.js';
 import { createImageRegistry } from './image.js';
@@ -20,6 +21,12 @@ import {
 
 const PAGE_EXT_RE = /\.(?:mdx?|html)$/;
 const HTML_EXT_RE = /\.html$/;
+// Any registry token or emit placeholder still present in a page's HTML after
+// every substitute has run. In a strict build this can't happen (the registry
+// that owns the token would have thrown); in keep-going mode it means the
+// asset behind the token failed, so the page can't be written correctly.
+const LEFTOVER_TOKEN_RE =
+  /__XTATIC_(?:IMG|STYLE|FONT|ASSET)_[a-f0-9]+__|__XTATIC_EMIT_[a-f0-9]+\.[a-z0-9]+__/;
 
 // Walk inputDir for page sources. A directory carrying a `.xtatic-verbatim`
 // marker is not descended for pages: every file under it is collected into
@@ -72,16 +79,31 @@ function computeOutPath(mm, segments, outputDir, pageLabel) {
   return path.posix.join(outputDir, op);
 }
 
-function renderTree(mm, segments, outputDir, topDir, assetsDirAbs, pages, seen) {
+// `ctx`: {outputDir, topDir, assetsDirAbs, pages, seen, errors, unrenderable,
+// skipped}. Every page's failure is reported to `ctx.errors` (which throws in
+// strict mode, ends the walk, and matches the old behavior); in keep-going
+// mode the page is left out, its label pushed onto `ctx.skipped`, and the walk
+// continues with its siblings and children.
+function renderTree(mm, segments, ctx) {
   // A synthetic node (directory with no index.md) groups its children in the
   // tree but has no source module and emits no output file.
-  if (mm.__xtatic_synthetic) {
-    for (const child of mm.childPages) {
-      renderTree(child, [...segments, child.name], outputDir, topDir, assetsDirAbs, pages, seen);
+  if (!mm.__xtatic_synthetic) {
+    const page = segments.length ? segments.join('/') : '/';
+    try {
+      renderPage(mm, segments, page, ctx);
+    } catch (err) {
+      ctx.skipped.push(page);
+      ctx.errors.report(err);
     }
-    return;
   }
-  const page = segments.length ? segments.join('/') : '/';
+  for (const child of mm.childPages) {
+    renderTree(child, [...segments, child.name], ctx);
+  }
+}
+
+function renderPage(mm, segments, page, ctx) {
+  const { outputDir, topDir, assetsDirAbs, pages, seen, unrenderable, skipped } =
+    ctx;
   const outPath = computeOutPath(mm, segments, outputDir, page);
   // Source-tree position of this page, used by the plain-asset registry to map
   // <a href="./other.md"> link targets onto their rendered output paths.
@@ -105,7 +127,18 @@ function renderTree(mm, segments, outputDir, topDir, assetsDirAbs, pages, seen) 
     );
   }
   seen.set(outPath, page);
-  const { html } = withFrame(
+  // The record goes in before rendering so a page that fails (or was already
+  // unrenderable because its layout chain didn't resolve) still claims its
+  // output path: a link to it then resolves to that URL instead of the
+  // plain-asset registry copying the page's source file as an asset. Consumers
+  // treat `html: null` as "not rendered".
+  const record = { page, outPath, srcPath, html: null };
+  pages.push(record);
+  if (unrenderable.has(mm)) {
+    skipped.push(page);
+    return;
+  }
+  record.html = withFrame(
     { kind: 'page', page, file: mm.__xtatic_path ?? null },
     () => {
       try {
@@ -114,16 +147,21 @@ function renderTree(mm, segments, outputDir, topDir, assetsDirAbs, pages, seen) 
         throw attachContext(err);
       }
     },
-  );
-  pages.push({ outPath, srcPath, html });
-  for (const child of mm.childPages) {
-    renderTree(child, [...segments, child.name], outputDir, topDir, assetsDirAbs, pages, seen);
-  }
+  ).html;
 }
 
-async function writePages(pages, substitute, writer) {
-  for (const { outPath, html } of pages) {
-    await writer.writeFile(outPath, substitute(html, outPath));
+// Write every rendered page. In keep-going mode a page whose HTML still holds
+// a token after substitution (its asset job failed) is left out and recorded
+// in `skipped` — the failure itself was already reported by the registry.
+async function writePages(pages, substitute, writer, { keepGoing, skipped }) {
+  for (const { page, outPath, html } of pages) {
+    if (html == null) continue;
+    const out = substitute(html, outPath);
+    if (keepGoing && LEFTOVER_TOKEN_RE.test(out)) {
+      skipped.push(page);
+      continue;
+    }
+    await writer.writeFile(outPath, out);
   }
 }
 
@@ -136,20 +174,35 @@ function isInsideOrSame(parent, child) {
 // Reject two entries (ordinary or generator-produced) that resolve to the same
 // logical path. Mirrors resolveLogicalPaths' check but spans the merged set;
 // generator-produced entries carry an `origin` ("template → substituted") for a
-// clearer message than the virtual substituted relPath alone.
-function assertUniqueLogicalPaths(entries) {
+// clearer message than the virtual substituted relPath alone. Returns the
+// entries that survive: in keep-going mode the later claimant of a path is
+// reported and dropped, in strict mode the first collision throws.
+function uniqueLogicalPaths(entries, errors, skipped) {
   const claimed = new Map();
+  const out = [];
   for (const e of entries) {
     const key = e.segments.join('/');
     const existing = claimed.get(key);
     if (existing !== undefined) {
       const label = key === '' ? '(root)' : key;
-      throw new Error(
-        `Multiple input files map to the same output path "${label}": ${existing} and ${e.origin ?? e.relPath}`,
+      skipped.push(pageLabel(e));
+      errors.report(
+        new Error(
+          `Multiple input files map to the same output path "${label}": ${existing} and ${e.origin ?? e.relPath}`,
+        ),
       );
+      continue;
     }
     claimed.set(key, e.origin ?? e.relPath);
+    out.push(e);
   }
+  return out;
+}
+
+// The label a page goes by in error messages and the skipped-pages summary:
+// its logical path ("blog/post-1", or "/" for the root).
+function pageLabel(entry) {
+  return entry.segments.length ? entry.segments.join('/') : '/';
 }
 
 // Suggest a generator filename for a file that exported `getPages` without one:
@@ -217,34 +270,54 @@ function makeSourceReader(fs, topDir) {
   };
 }
 
-export async function build(options) {
-  try {
-    return await buildImpl(options);
-  } catch (err) {
-    // A render error (possibly deferred to a registry's processAll) carries a
-    // snapshot of the page / layout / component chain that led to it; fold it
-    // into the message so every consumer (cli, watch, serve-error) shows it.
-    if (
-      err &&
-      typeof err === 'object' &&
-      err.xtaticContext &&
-      !err.xtaticContextRendered
-    ) {
-      const topDir =
-        options.topDir != null
-          ? path.posix.resolve(options.topDir)
-          : path.posix.resolve(options.inputDir);
-      const ctx = formatContext(err.xtaticContext, {
-        readSource: makeSourceReader(options.fs, topDir),
-        codeFrameWidth: options.codeFrameWidth ?? 120,
-      });
-      if (ctx) {
-        err.message = `${err.message}\n\n${ctx}`;
-        err.xtaticContextRendered = true;
-      }
-    }
-    throw err;
+// A render error (possibly deferred to a registry's processAll) carries a
+// snapshot of the page / layout / component chain that led to it; fold it
+// into the message so every consumer (cli, watch, serve-error) shows it.
+function renderContextInto(err, options) {
+  if (
+    !err ||
+    typeof err !== 'object' ||
+    !err.xtaticContext ||
+    err.xtaticContextRendered
+  ) {
+    return;
   }
+  const topDir =
+    options.topDir != null
+      ? path.posix.resolve(options.topDir)
+      : path.posix.resolve(options.inputDir);
+  const ctx = formatContext(err.xtaticContext, {
+    readSource: makeSourceReader(options.fs, topDir),
+    codeFrameWidth: options.codeFrameWidth ?? 120,
+  });
+  if (ctx) {
+    err.message = `${err.message}\n\n${ctx}`;
+    err.xtaticContextRendered = true;
+  }
+}
+
+// `keepGoing: true` turns the first-error-aborts build into a best-effort one:
+// every per-page / per-generator / per-layout / per-asset failure is collected
+// (see errors.js), the affected pages are left out of the output, everything
+// else is written and pruned as usual, and the build then rejects with one
+// AggregateError listing every failure plus the pages that weren't written.
+// Without it (the default) the first error is thrown as before.
+export async function build(options) {
+  const keepGoing = options.keepGoing === true;
+  const errors = createErrorCollector({ keepGoing });
+  const skipped = [];
+  try {
+    await buildImpl({ ...options, errors, skipped });
+  } catch (err) {
+    // Strict mode: the one error. Keep-going: a fatal (non-per-unit) error
+    // that ended the build early, listed after everything collected so far.
+    errors.add(err);
+  }
+  if (errors.list.length === 0) return;
+  for (const err of errors.list) renderContextInto(err, options);
+  if (!keepGoing) throw errors.list[0];
+  const pages = [...new Set(skipped)].sort();
+  throw makeBuildError(errors.list, pages);
 }
 
 async function buildImpl({
@@ -262,7 +335,12 @@ async function buildImpl({
   fontSubset,
   reloadJs = false,
   fs,
+  errors = createErrorCollector(),
+  // Labels of pages left out of the output (keep-going mode); build() owns
+  // the array so it survives a fatal throw.
+  skipped = [],
 }) {
+  const { keepGoing } = errors;
   inputDir = path.posix.resolve(inputDir);
   outputDir = path.posix.resolve(outputDir);
   topDir = topDir != null ? path.posix.resolve(topDir) : inputDir;
@@ -286,15 +364,20 @@ async function buildImpl({
   // page landing on the same path (pages/about.md vs. a verbatim
   // pages/about/index.html) is a hard error, and none may sit under assetsDir.
   const seen = new Map();
+  const verbatimOk = [];
   for (const v of verbatim) {
     v.outPath = verbatimOutPath(outputDir, v.relPath);
     if (isInsideOrSame(assetsDirAbs, v.outPath)) {
-      throw new Error(
-        `Verbatim file "${v.relPath}" writes to "${v.outPath}", which is inside the generated assets directory "${assetsDirAbs}". ` +
-          `Move the file, or set a different xtatic.assetsDir.`,
+      errors.report(
+        new Error(
+          `Verbatim file "${v.relPath}" writes to "${v.outPath}", which is inside the generated assets directory "${assetsDirAbs}". ` +
+            `Move the file, or set a different xtatic.assetsDir.`,
+        ),
       );
+      continue;
     }
     seen.set(v.outPath, `verbatim file "${v.relPath}"`);
+    verbatimOk.push(v);
   }
   // Page generators are files whose name carries `{placeholder}` tokens (e.g.
   // tag-{tag}.md); they expand into one page per item their `getPages()` returns
@@ -304,7 +387,7 @@ async function buildImpl({
   for (const f of files) {
     (hasPlaceholders(f.relPath) ? templateFiles : normalFiles).push(f);
   }
-  const entries = normalFiles.map((f) => ({
+  let entries = normalFiles.map((f) => ({
     relPath: f.relPath,
     segments: resolveLogicalPath(f.relPath),
     absPath: f.absPath,
@@ -318,12 +401,14 @@ async function buildImpl({
     defaultInlineThreshold: imageInlineThreshold,
     autoInstall,
     install,
+    errors,
   });
   const styleRegistry = createStyleRegistry({
     fs,
     topDir,
     assetRegistry,
     defaultInlineThreshold: styleInlineThreshold,
+    errors,
   });
   const fontRegistry = createFontRegistry({
     fs,
@@ -332,6 +417,7 @@ async function buildImpl({
     autoInstall,
     install,
     fontSubset,
+    errors,
   });
   const plainAssetRegistry = createPlainAssetRegistry({
     fs,
@@ -340,6 +426,7 @@ async function buildImpl({
     assetRegistry,
     defaultInlineThreshold: assetInlineThreshold,
     writer,
+    errors,
   });
   const registry = createRegistry({
     fs,
@@ -351,21 +438,41 @@ async function buildImpl({
     plainAssetRegistry,
     reloadJs,
   });
+  // Load every page. A page that fails to load (compile error, a broken
+  // import, …) is dropped from the entry set: in keep-going mode its slot in
+  // the tree is synthesized if it has children, so listings simply omit it.
+  // The registry caches the failure, so another page importing the broken
+  // file fails with the very same Error object (deduped by the collector).
+  const loaded = [];
   for (const entry of entries) {
-    entry.mm = HTML_EXT_RE.test(entry.relPath)
-      ? await registry.loadHtml(entry.absPath)
-      : await registry.loadMdx(entry.absPath);
-  }
-  // A file that exports `getPages` but isn't a generator (no {placeholder} in
-  // its name) would silently render once and drop the export — surface it.
-  for (const entry of entries) {
-    if (entry.mm.getPages !== undefined) {
-      throw new Error(
-        `"${entry.relPath}" exports \`getPages\` but its filename has no {placeholder}; ` +
-          `rename it (e.g. ${placeholderHint(entry.relPath)}) to generate multiple pages from it.`,
-      );
+    try {
+      entry.mm = HTML_EXT_RE.test(entry.relPath)
+        ? await registry.loadHtml(entry.absPath)
+        : await registry.loadMdx(entry.absPath);
+    } catch (e) {
+      skipped.push(pageLabel(entry));
+      errors.report(e);
+      continue;
     }
+    // A file that exports `getPages` but isn't a generator (no {placeholder} in
+    // its name) would silently render once and drop the export — surface it.
+    if (entry.mm.getPages !== undefined) {
+      skipped.push(pageLabel(entry));
+      errors.report(
+        new Error(
+          `"${entry.relPath}" exports \`getPages\` but its filename has no {placeholder}; ` +
+            `rename it (e.g. ${placeholderHint(entry.relPath)}) to generate multiple pages from it.`,
+        ),
+      );
+      continue;
+    }
+    loaded.push(entry);
   }
+  entries = loaded;
+  // Every page failed to load: there's nothing to assemble (and "No page
+  // sources found" would only bury the real errors), so stop here. The
+  // previous output is left as it was.
+  if (entries.length === 0 && errors.list.length > 0) return;
   // Assemble the ordinary pages into a tree before expanding generators, so a
   // generator's getPages() can import a parent page and iterate its childPages
   // (which only exist post-assembly). The same mm objects are re-wired by the
@@ -379,31 +486,62 @@ async function buildImpl({
   // the entry set so they flow through tree assembly and rendering as usual.
   const toRelPath = (abs) => path.posix.relative(inputDir, abs);
   for (const f of templateFiles) {
-    if (HTML_EXT_RE.test(f.relPath)) {
-      throw new Error(
-        `Page generator "${f.relPath}" must be a .md or .mdx file: a .html file cannot export getPages.`,
-      );
-    }
-    const tmplMm = await registry.loadMdx(f.absPath);
-    for (const e of registry.expandTemplate(tmplMm, f.absPath, { toRelPath })) {
-      entries.push(e);
+    // A generator that fails (to load, or inside getPages()) produces no
+    // pages at all; it's listed under its own logical label.
+    try {
+      if (HTML_EXT_RE.test(f.relPath)) {
+        throw new Error(
+          `Page generator "${f.relPath}" must be a .md or .mdx file: a .html file cannot export getPages.`,
+        );
+      }
+      const tmplMm = await registry.loadMdx(f.absPath);
+      for (const e of registry.expandTemplate(tmplMm, f.absPath, { toRelPath })) {
+        entries.push(e);
+      }
+    } catch (e) {
+      skipped.push(pageLabel({ segments: resolveLogicalPath(f.relPath) }));
+      errors.report(e);
     }
   }
-  assertUniqueLogicalPaths(entries);
+  entries = uniqueLogicalPaths(entries, errors, skipped);
   entries.sort((a, b) =>
     a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0,
   );
   const root = assembleTree(entries, { inputDir });
+  // A page whose layout chain doesn't resolve can't render; it keeps its
+  // place in the tree (listings still see it) but is skipped by renderTree.
+  // Layout lookups that fail are cached by name so fifty pages sharing one
+  // missing layout report it once.
+  const unrenderable = new Set();
+  const failedLayouts = new Map();
   for (const entry of entries) {
-    await resolveLayoutChain(entry.mm, {
-      fs,
-      layoutsDir,
-      registry,
-      requesterPath: entry.relPath,
-    });
+    try {
+      await resolveLayoutChain(entry.mm, {
+        fs,
+        layoutsDir,
+        registry,
+        requesterPath: entry.relPath,
+        failedLayouts,
+      });
+    } catch (e) {
+      unrenderable.add(entry.mm);
+      errors.report(e);
+    }
   }
   const pages = [];
-  renderTree(root, [], outputDir, topDir, assetsDirAbs, pages, seen);
+  renderTree(root, [], {
+    outputDir,
+    topDir,
+    assetsDirAbs,
+    pages,
+    seen,
+    errors,
+    unrenderable,
+    skipped,
+  });
+  // Pages that actually rendered; the plain-asset registry gets the full list
+  // (unrendered pages still claim their output paths for link resolution).
+  const rendered = pages.filter((p) => p.html != null);
   const imageSubstitute = await imageRegistry.processAll();
   const styleSubstitute = await styleRegistry.processAll();
   // Plain-asset runs before font so the font registry can ask
@@ -414,11 +552,13 @@ async function buildImpl({
   // Verbatim files are link targets too: <a href="./legacy/x.xml"> from a page
   // resolves to the copied file's page-relative URL rather than re-emitting it
   // as an asset.
-  const verbatimOutBySrc = new Map(verbatim.map((v) => [v.absPath, v.outPath]));
+  const verbatimOutBySrc = new Map(
+    verbatimOk.map((v) => [v.absPath, v.outPath]),
+  );
   const assetSubstitute = await plainAssetRegistry.processAll(pages, {
     verbatimOutBySrc,
   });
-  const fontSubstitute = await fontRegistry.processAll(pages, {
+  const fontSubstitute = await fontRegistry.processAll(rendered, {
     cssForPage: (html) => [
       ...styleRegistry.cssForPage(html),
       ...plainAssetRegistry.cssForPage(html),
@@ -437,8 +577,11 @@ async function buildImpl({
       ),
       path.posix.dirname(outPath),
     );
-  await writePages(pages, substitute, writer);
-  await writeVerbatimFiles({ fs, writer, entries: verbatim });
+  await writePages(rendered, substitute, writer, { keepGoing, skipped });
+  await writeVerbatimFiles({ fs, writer, entries: verbatimOk });
+  // Prune runs even when pages were skipped: the output then reflects this
+  // build's state (a broken page is absent, not stale), and the error lists
+  // exactly which pages that applies to.
   await writer.prune();
 }
 
@@ -449,7 +592,11 @@ async function resolveLayoutChain(mm, ctx) {
   await resolveLayoutChain(tmpl, ctx);
 }
 
-async function loadLayoutByName(name, { fs, layoutsDir, registry, requesterPath }) {
+async function loadLayoutByName(
+  name,
+  { fs, layoutsDir, registry, requesterPath, failedLayouts = new Map() },
+) {
+  if (failedLayouts.has(name)) throw failedLayouts.get(name);
   if (/\.mdx?$/.test(name)) {
     return registry.loadMdx(path.posix.join(layoutsDir, name));
   }
@@ -464,7 +611,9 @@ async function loadLayoutByName(name, { fs, layoutsDir, registry, requesterPath 
     }
   }
   const requestedBy = requesterPath ? ` (requested by "${requesterPath}")` : '';
-  throw new Error(
+  const err = new Error(
     `Layout "${name}"${requestedBy} not found: tried ${mdxPath} and ${mdPath}.`,
   );
+  failedLayouts.set(name, err);
+  throw err;
 }

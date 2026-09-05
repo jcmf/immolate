@@ -488,3 +488,75 @@ test('serve fails with a clear message when XTATIC_PORT is invalid', () => {
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /invalid XTATIC_PORT/);
 });
+
+test('build --keep-going writes the good pages, reports every error, and exits 1', () => {
+  const top = setupTopDir('keep-going', {
+    files: {
+      'pages/index.md': '# Home\n',
+      'pages/bad-a.md': "export function Boom() { throw new Error('boom a') }\n\n<Boom />\n",
+      'pages/bad-b.md': "export function Boom() { throw new Error('boom b') }\n\n<Boom />\n",
+    },
+  });
+  const r = runCli(['build', '--keep-going', top]);
+  assert.equal(r.status, 1);
+  const err = stripAnsi(r.stderr);
+  assert.match(err, /Build finished with 2 errors:/);
+  assert.match(err, /\[1\/2\] boom a[\s\S]*in <Boom> at pages\/bad-a\.md:3:1/);
+  assert.match(err, /\[2\/2\] boom b[\s\S]*in <Boom> at pages\/bad-b\.md:3:1/);
+  assert.match(err, /2 pages were not written because of the errors above: bad-a, bad-b/);
+  assert.ok(nodeFs.existsSync(path.join(top, 'site', 'index.html')));
+  assert.ok(!nodeFs.existsSync(path.join(top, 'site', 'bad-a')));
+});
+
+test('-k is accepted anywhere on the command line, including before the command', () => {
+  const top = setupTopDir('keep-going-short', {
+    files: { 'pages/index.md': '# Home\n', 'pages/bad.md': "export function Boom() { throw new Error('boom a') }\n\n<Boom />\n" },
+  });
+  const r = runCli(['-k', 'build', top]);
+  assert.equal(r.status, 1);
+  assert.match(stripAnsi(r.stderr), /Build finished with 1 error:/);
+  assert.ok(nodeFs.existsSync(path.join(top, 'site', 'index.html')));
+});
+
+test('without --keep-going the first error stops the build and nothing is written', () => {
+  const top = setupTopDir('keep-going-off', {
+    files: { 'pages/index.md': '# Home\n', 'pages/bad.md': "export function Boom() { throw new Error('boom a') }\n\n<Boom />\n" },
+  });
+  const r = runCli(['build', top]);
+  assert.equal(r.status, 1);
+  assert.doesNotMatch(r.stderr, /Build finished with/);
+  assert.match(stripAnsi(r.stderr), /boom a[\s\S]*in <Boom> at pages\/bad\.md:3:1/);
+  assert.ok(!nodeFs.existsSync(path.join(top, 'site')));
+});
+
+test('--keep-going is rejected for commands that do not build', () => {
+  const top = setupTopDir('keep-going-init', { files: {} });
+  const r = runCli(['init', '--keep-going', top]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /--keep-going applies to build, watch, serve, browse, not "init"/);
+});
+
+test('an unknown option is an error', () => {
+  const r = runCli(['build', '--bogus']);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /unknown option "--bogus"/);
+});
+
+test('build --keep-going: a lint failure no longer stops the build; both reports are printed', () => {
+  const top = setupTopDir('keep-going-lint', {
+    files: {
+      'pages/index.md': '# Home\n',
+      'pages/unclosed.md': '<div>\n',
+      'pages/throws.md': "export function Boom() { throw new Error('boom a') }\n\n<Boom />\n",
+    },
+  });
+  const r = runCli(['build', '-k', top]);
+  assert.equal(r.status, 1);
+  const err = stripAnsi(r.stderr);
+  assert.match(err, /Lint failed with 1 error:/);
+  assert.match(err, /Build finished with 2 errors:/);
+  assert.match(err, /Failed to compile "pages\/unclosed\.md"/);
+  assert.match(err, /boom a/);
+  assert.match(err, /2 pages were not written because of the errors above: throws, unclosed/);
+  assert.ok(nodeFs.existsSync(path.join(top, 'site', 'index.html')));
+});

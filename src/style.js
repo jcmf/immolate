@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { rewriteCssUrls } from './css-urls.js';
+import { createErrorCollector } from './errors.js';
 import { attachContext, currentStack } from './render-context.js';
 
 const DEFAULT_INLINE_THRESHOLD = 2048;
@@ -39,6 +40,11 @@ export function createStyleRegistry({
   topDir,
   assetRegistry,
   defaultInlineThreshold = DEFAULT_INLINE_THRESHOLD,
+  // Build-wide error collector (see errors.js). The default is strict: a
+  // failed job throws out of processAll, as before. In keep-going mode a
+  // failed job is recorded and every call that depends on it keeps its token
+  // in the page HTML, which index.js then treats as "page not writable".
+  errors = createErrorCollector(),
 }) {
   const calls = [];
   const jobs = new Map();
@@ -114,7 +120,7 @@ export function createStyleRegistry({
             }),
           );
         } catch (e) {
-          throw attachContext(e, job.context);
+          errors.report(attachContext(e, job.context));
         }
       }),
     );
@@ -122,6 +128,7 @@ export function createStyleRegistry({
     const tokenToHtml = new Map();
     for (const call of calls) {
       const css = resolvedCss.get(call.absSrc);
+      if (css === undefined) continue; // job failed (keep-going): token stays
       const passAttrs = {};
       for (const [k, v] of Object.entries(call.passThrough)) {
         passAttrs[renameAttr(k)] = v;

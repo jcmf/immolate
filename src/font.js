@@ -4,6 +4,7 @@ import { create as fontkitCreate } from 'fontkit';
 import { transcodeToWoff2 } from './font-transcode.js';
 import { subsetToWoff2 } from './font-subset.js';
 import { computeCodePointsByFace, faceKey } from './font-cascade.js';
+import { createErrorCollector } from './errors.js';
 import { attachContext, currentStack } from './render-context.js';
 
 const TOKEN_RE = /__XTATIC_FONT_[a-f0-9]+__/g;
@@ -170,6 +171,10 @@ export function createFontRegistry({
   subset = (bytes, text) =>
     subsetToWoff2(bytes, text, { autoInstall, topDir, install }),
   getCoverage = defaultGetCoverage,
+  // Build-wide error collector (see errors.js); strict by default. In
+  // keep-going mode a failed job (or a failed coverage read) is recorded and
+  // every call depending on it keeps its token in the page HTML.
+  errors = createErrorCollector(),
 }) {
   const subsetConfig = normalizeFontSubset(fontSubset);
   const calls = [];
@@ -515,69 +520,80 @@ export function createFontRegistry({
           ? new Set(['__site__']) // call's token never appears: still emit something safe
           : tokenToPages[i];
 
-      for (const bucket of targetBuckets) {
-        const outPath = bucket === '__site__' ? null : bucket;
+      // Coverage reads (for hedge) can throw; in keep-going mode that fails
+      // just this call — its buckets stay unset, so its token is never resolved.
+      try {
+        for (const bucket of targetBuckets) {
+          const outPath = bucket === '__site__' ? null : bucket;
 
-        let primarySubsetText;
-        if (call.text !== undefined) {
-          primarySubsetText = canonicalSubsetText(call.text);
-        } else if (call.autoSubset) {
-          const auto = autoSubsetFor(call, outPath);
-          if (auto !== undefined) primarySubsetText = auto;
-        }
+          let primarySubsetText;
+          if (call.text !== undefined) {
+            primarySubsetText = canonicalSubsetText(call.text);
+          } else if (call.autoSubset) {
+            const auto = autoSubsetFor(call, outPath);
+            if (auto !== undefined) primarySubsetText = auto;
+          }
 
-        const primaryCpSet =
-          primarySubsetText === undefined
-            ? null
-            : new Set([...primarySubsetText].map((c) => c.codePointAt(0)));
+          const primaryCpSet =
+            primarySubsetText === undefined
+              ? null
+              : new Set([...primarySubsetText].map((c) => c.codePointAt(0)));
 
-        const complementCpSet = await computeComplement(call, primaryCpSet);
+          const complementCpSet = await computeComplement(call, primaryCpSet);
 
-        let primaryRange = null;
-        let complementRange = null;
-        if (complementCpSet) {
-          primaryRange = encodeUnicodeRange(
-            [...primaryCpSet].sort((a, b) => a - b),
-          );
-          complementRange = encodeUnicodeRange(
-            [...complementCpSet].sort((a, b) => a - b),
-          );
-        }
+          let primaryRange = null;
+          let complementRange = null;
+          if (complementCpSet) {
+            primaryRange = encodeUnicodeRange(
+              [...primaryCpSet].sort((a, b) => a - b),
+            );
+            complementRange = encodeUnicodeRange(
+              [...complementCpSet].sort((a, b) => a - b),
+            );
+          }
 
-        const primaryJobKey = ensureJob(
-          call.absSrc,
-          call.ext,
-          primarySubsetText,
-          call.importerDisplay,
-          call.context,
-        );
-        let complementJobKey = null;
-        if (complementCpSet) {
-          const complementText = String.fromCodePoint(
-            ...[...complementCpSet].sort((a, b) => a - b),
-          );
-          complementJobKey = ensureJob(
+          const primaryJobKey = ensureJob(
             call.absSrc,
             call.ext,
-            complementText,
+            primarySubsetText,
             call.importerDisplay,
             call.context,
           );
-        }
+          let complementJobKey = null;
+          if (complementCpSet) {
+            const complementText = String.fromCodePoint(
+              ...[...complementCpSet].sort((a, b) => a - b),
+            );
+            complementJobKey = ensureJob(
+              call.absSrc,
+              call.ext,
+              complementText,
+              call.importerDisplay,
+              call.context,
+            );
+          }
 
-        buckets.set(bucket, {
-          primaryJobKey,
-          primaryRange,
-          complementJobKey,
-          complementRange,
-        });
+          buckets.set(bucket, {
+            primaryJobKey,
+            primaryRange,
+            complementJobKey,
+            complementRange,
+          });
+        }
+      } catch (e) {
+        buckets.clear();
+        errors.report(e);
       }
     }
 
     const jobResults = new Map();
     await Promise.all(
       [...jobs.entries()].map(async ([key, job]) => {
-        jobResults.set(key, await runJob(job));
+        try {
+          jobResults.set(key, await runJob(job));
+        } catch (e) {
+          errors.report(e);
+        }
       }),
     );
 
@@ -600,6 +616,10 @@ export function createFontRegistry({
         resolution;
       const primary = jobResults.get(primaryJobKey);
       const complement = complementJobKey ? jobResults.get(complementJobKey) : null;
+      // A failed job (keep-going) leaves the call unresolved: token stays.
+      if (primary === undefined || (complementJobKey && complement === undefined)) {
+        return null;
+      }
       const faces = [renderFace(call, primary.url, primary.ext, primaryRange)];
       if (complement) {
         faces.push(
@@ -627,7 +647,8 @@ export function createFontRegistry({
       for (let i = 0; i < calls.length; i++) {
         const resolution = callJobs[i].get('__site__');
         if (!resolution) continue;
-        tokenToHtml.set(calls[i].token, buildHtmlFor(calls[i], resolution));
+        const html = buildHtmlFor(calls[i], resolution);
+        if (html !== null) tokenToHtml.set(calls[i].token, html);
       }
       return function substitute(html) {
         if (tokenToHtml.size === 0) return html;
@@ -640,9 +661,11 @@ export function createFontRegistry({
     for (let i = 0; i < calls.length; i++) {
       for (const [bucket, resolution] of callJobs[i]) {
         if (bucket === '__site__') continue;
+        const html = buildHtmlFor(calls[i], resolution);
+        if (html === null) continue;
         let map = tokenToHtmlByPage.get(bucket);
         if (!map) tokenToHtmlByPage.set(bucket, (map = new Map()));
-        map.set(calls[i].token, buildHtmlFor(calls[i], resolution));
+        map.set(calls[i].token, html);
       }
     }
     return function substitute(html, outPath) {

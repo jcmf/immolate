@@ -204,28 +204,54 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
     return pending;
   }
 
+  // A module that failed to load stays in its cache as `status: 'failed'` with
+  // the error, and every later load of it rethrows that same Error object. Two
+  // reasons: the placeholder `mm` is an empty object, so handing it out again
+  // would surface as a baffling downstream error ("Unsupported JSX type") far
+  // from the real cause; and a keep-going build (see errors.js) dedupes
+  // collected errors by identity, so one broken layout imported by many pages
+  // is reported once. Returns the cached mm for a done/compiling entry.
+  function cachedOrThrow(cache, absPath) {
+    const entry = cache.get(absPath);
+    if (entry === undefined) return undefined;
+    if (entry.status === 'failed') throw entry.error;
+    return entry.mm;
+  }
+
+  function markFailed(cache, absPath, error) {
+    const entry = cache.get(absPath);
+    entry.status = 'failed';
+    entry.error = error;
+    return error;
+  }
+
   async function loadJsx(absPath) {
-    if (jsxModules.has(absPath)) return jsxModules.get(absPath).mm;
+    const cached = cachedOrThrow(jsxModules, absPath);
+    if (cached !== undefined) return cached;
     const mm = {};
     jsxModules.set(absPath, { mm, status: 'compiling' });
-    const source = await fs.promises.readFile(absPath, 'utf8');
-    let compiled;
     try {
-      compiled = await compileJsxSource(source, {
-        resolve: makeResolver(absPath),
-        asset: plainAssetRegistry?.forImporter(absPath),
-        importerDisplay: displayPath(absPath),
-      });
+      const source = await fs.promises.readFile(absPath, 'utf8');
+      let compiled;
+      try {
+        compiled = await compileJsxSource(source, {
+          resolve: makeResolver(absPath),
+          asset: plainAssetRegistry?.forImporter(absPath),
+          importerDisplay: displayPath(absPath),
+        });
+      } catch (e) {
+        // A nested import that failed already carries a formatted xtatic error
+        // naming the real culprit file — re-throw it as-is rather than wrapping it
+        // again under this importer (which would bury the culprit and duplicate
+        // its stack frames).
+        if (e?.xtaticFormatted) throw e;
+        if (e?.xtaticEvalError) throw makeEvalError(displayPath(absPath), e);
+        throw makeCompileError(displayPath(absPath), source, e);
+      }
+      Object.assign(mm, compiled);
     } catch (e) {
-      // A nested import that failed already carries a formatted xtatic error
-      // naming the real culprit file — re-throw it as-is rather than wrapping it
-      // again under this importer (which would bury the culprit and duplicate
-      // its stack frames).
-      if (e?.xtaticFormatted) throw e;
-      if (e?.xtaticEvalError) throw makeEvalError(displayPath(absPath), e);
-      throw makeCompileError(displayPath(absPath), source, e);
+      throw markFailed(jsxModules, absPath, e);
     }
-    Object.assign(mm, compiled);
     const dp = displayPath(absPath);
     stampPath(mm, dp);
     stampUrl(mm, absPath, dp);
@@ -241,21 +267,26 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
   // undefined) to opt out of assembleTree's defaultLayout walk. A non-empty
   // <title> defaults the page's `title` the way frontmatter would.
   async function loadHtml(absPath) {
-    if (htmlModules.has(absPath)) return htmlModules.get(absPath).mm;
+    const cached = cachedOrThrow(htmlModules, absPath);
+    if (cached !== undefined) return cached;
     const mm = {};
     htmlModules.set(absPath, { mm, status: 'processing' });
-    const source = await fs.promises.readFile(absPath, 'utf8');
     const dp = displayPath(absPath);
-    const asset = plainAssetRegistry
-      ? plainAssetRegistry.forImporter(absPath)
-      : (value) => value;
-    const { html, title } = processHtml(source, {
-      asset,
-      importerDisplay: dp,
-    });
-    if (title !== undefined) mm.title = title;
-    mm.layout = null;
-    mm.default = () => ({ html });
+    try {
+      const source = await fs.promises.readFile(absPath, 'utf8');
+      const asset = plainAssetRegistry
+        ? plainAssetRegistry.forImporter(absPath)
+        : (value) => value;
+      const { html, title } = processHtml(source, {
+        asset,
+        importerDisplay: dp,
+      });
+      if (title !== undefined) mm.title = title;
+      mm.layout = null;
+      mm.default = () => ({ html });
+    } catch (e) {
+      throw markFailed(htmlModules, absPath, e);
+    }
     stampPath(mm, dp);
     stampUrl(mm, absPath, dp);
     htmlModules.get(absPath).status = 'done';
@@ -263,29 +294,34 @@ export function createRegistry({ fs, topDir, remarkPlugins, imageRegistry, style
   }
 
   async function loadMdx(absPath) {
-    if (mdxModules.has(absPath)) return mdxModules.get(absPath).mm;
+    const cached = cachedOrThrow(mdxModules, absPath);
+    if (cached !== undefined) return cached;
     const mm = {};
     mdxModules.set(absPath, { mm, status: 'compiling' });
-    const source = await fs.promises.readFile(absPath, 'utf8');
-    let compiled;
     try {
-      compiled = await compileSource(source, {
-        importerPath: absPath,
-        importerDisplay: displayPath(absPath),
-        resolve: makeResolver(absPath),
-        asset: plainAssetRegistry?.forImporter(absPath),
-        remarkPlugins,
-      });
+      const source = await fs.promises.readFile(absPath, 'utf8');
+      let compiled;
+      try {
+        compiled = await compileSource(source, {
+          importerPath: absPath,
+          importerDisplay: displayPath(absPath),
+          resolve: makeResolver(absPath),
+          asset: plainAssetRegistry?.forImporter(absPath),
+          remarkPlugins,
+        });
+      } catch (e) {
+        // A nested import that failed already carries a formatted xtatic error
+        // naming the real culprit file — re-throw it as-is rather than wrapping it
+        // again under this importer (which would bury the culprit and duplicate
+        // its stack frames).
+        if (e?.xtaticFormatted) throw e;
+        if (e?.xtaticEvalError) throw makeEvalError(displayPath(absPath), e);
+        throw makeCompileError(displayPath(absPath), source, e);
+      }
+      Object.assign(mm, compiled);
     } catch (e) {
-      // A nested import that failed already carries a formatted xtatic error
-      // naming the real culprit file — re-throw it as-is rather than wrapping it
-      // again under this importer (which would bury the culprit and duplicate
-      // its stack frames).
-      if (e?.xtaticFormatted) throw e;
-      if (e?.xtaticEvalError) throw makeEvalError(displayPath(absPath), e);
-      throw makeCompileError(displayPath(absPath), source, e);
+      throw markFailed(mdxModules, absPath, e);
     }
-    Object.assign(mm, compiled);
     const dp = displayPath(absPath);
     stampPath(mm, dp);
     stampUrl(mm, absPath, dp);

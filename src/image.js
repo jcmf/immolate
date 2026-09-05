@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { createErrorCollector } from './errors.js';
 import { attachContext, currentStack } from './render-context.js';
 import { loadOptionalDep } from './install.js';
 
@@ -71,6 +72,9 @@ export function createImageRegistry({
   defaultInlineThreshold = DEFAULT_INLINE_THRESHOLD,
   autoInstall = false,
   install,
+  // Build-wide error collector (see errors.js); strict by default. See the
+  // matching note in style.js.
+  errors = createErrorCollector(),
 }) {
   const calls = [];
   const jobs = new Map();
@@ -232,7 +236,11 @@ export function createImageRegistry({
     const jobResults = new Map();
     await Promise.all(
       [...jobs.entries()].map(async ([key, job]) => {
-        jobResults.set(key, await runJob(job));
+        try {
+          jobResults.set(key, await runJob(job));
+        } catch (e) {
+          errors.report(e);
+        }
       }),
     );
 
@@ -240,6 +248,7 @@ export function createImageRegistry({
 
     for (const call of calls) {
       const result = jobResults.get(call.jobKey);
+      if (result === undefined) continue; // job failed (keep-going): token stays
       const { bytes, format, mediaType, width, height } = result;
 
       let urlSrc;

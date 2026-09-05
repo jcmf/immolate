@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { VALID_PLACEMENTS } from './asset-rules.js';
 import { rewriteCssUrls } from './css-urls.js';
+import { createErrorCollector } from './errors.js';
 import { createOutputWriter } from './output.js';
 import { attachContext, currentStack } from './render-context.js';
 
@@ -83,6 +84,10 @@ export function createPlainAssetRegistry({
   assetRegistry,
   defaultInlineThreshold = 4096,
   writer,
+  // Build-wide error collector (see errors.js); strict by default. In
+  // keep-going mode a source whose read/rewrite/placement fails is marked
+  // `failed` and its tokens are left in the page HTML for index.js to notice.
+  errors = createErrorCollector(),
 }) {
   // The build's shared output writer (skip-if-unchanged writes + prune
   // bookkeeping); registry-only unit tests get a private one.
@@ -183,6 +188,10 @@ export function createPlainAssetRegistry({
     const pageOutBySrc = new Map();
     for (const page of pages) {
       if (page.srcPath) pageOutBySrc.set(page.srcPath, page.outPath);
+      // A page that failed to render (keep-going mode) still claims its output
+      // path above, so links to it resolve to a URL rather than copying its
+      // source as a file — but it has no HTML to scan.
+      if (page.html == null) continue;
       const found = page.html.match(TOKEN_RE);
       if (!found) continue;
       for (const t of found) tokenToPage.set(t, page.outPath);
@@ -214,11 +223,14 @@ export function createPlainAssetRegistry({
           entry.explicitPlacement &&
           entry.explicitPlacement !== call.placement
         ) {
-          throw attachContext(
-            new Error(
-              `Conflicting placement for "${call.srcDisplay}": got "${entry.explicitPlacement}" and "${call.placement}" (in "${displayPath(call.importerAbsPath)}").`,
+          entry.failed = true;
+          errors.report(
+            attachContext(
+              new Error(
+                `Conflicting placement for "${call.srcDisplay}": got "${entry.explicitPlacement}" and "${call.placement}" (in "${displayPath(call.importerAbsPath)}").`,
+              ),
+              call.context,
             ),
-            call.context,
           );
         }
         entry.explicitPlacement = call.placement;
@@ -227,7 +239,7 @@ export function createPlainAssetRegistry({
 
     await Promise.all(
       [...bySrc.values()]
-        .filter((entry) => !isLinkTarget(entry))
+        .filter((entry) => !isLinkTarget(entry) && !entry.failed)
         .map(async (entry) => {
         try {
           try {
@@ -255,7 +267,8 @@ export function createPlainAssetRegistry({
             resolvedCss.set(entry.absSrc, rewritten);
           }
         } catch (e) {
-          throw attachContext(e, entry.calls[0]?.context);
+          entry.failed = true;
+          errors.report(attachContext(e, entry.calls[0]?.context));
         }
       }),
     );
@@ -303,7 +316,27 @@ export function createPlainAssetRegistry({
         }
         continue;
       }
-      const placement = decidePlacement(entry);
+      if (entry.failed) continue; // keep-going: tokens stay unresolved
+      let placement;
+      try {
+        placement = decidePlacement(entry);
+        if (placement === 'co-located') {
+          const relFromTop = path.posix.relative(topDir, entry.absSrc);
+          const assetOutAbs = path.posix.join(outputDir, relFromTop);
+          const existing = colocatedWrites.get(assetOutAbs);
+          if (existing && !existing.equals(entry.bytes)) {
+            throw attachContext(
+              new Error(
+                `Co-located output collision at ${assetOutAbs}: different bytes.`,
+              ),
+              entry.calls[0]?.context,
+            );
+          }
+        }
+      } catch (e) {
+        errors.report(e);
+        continue;
+      }
       switch (placement) {
         case 'inline': {
           const url = `data:${mimeFromExt(entry.ext)};base64,${entry.bytes.toString('base64')}`;
@@ -328,15 +361,6 @@ export function createPlainAssetRegistry({
         case 'co-located': {
           const relFromTop = path.posix.relative(topDir, entry.absSrc);
           const assetOutAbs = path.posix.join(outputDir, relFromTop);
-          const existing = colocatedWrites.get(assetOutAbs);
-          if (existing && !existing.equals(entry.bytes)) {
-            throw attachContext(
-              new Error(
-                `Co-located output collision at ${assetOutAbs}: different bytes.`,
-              ),
-              entry.calls[0]?.context,
-            );
-          }
           colocatedWrites.set(assetOutAbs, entry.bytes);
           for (const call of entry.calls) {
             tokenToResolver.set(call.token, (outPath) => {
