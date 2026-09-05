@@ -77,6 +77,34 @@ function cleanPageUrl(rel) {
   return rel;
 }
 
+// Index files a directory reference (`href="foo/"`, `href="foo"`) may stand
+// for: a page source (any of these) or a verbatim-copied `index.html`.
+const PAGE_INDEX_NAMES = ['index.html', 'index.md', 'index.mdx'];
+
+// Resolve a link's source path to a page or verbatim output path. A direct
+// hit wins; otherwise the path is treated as a directory and its index file
+// is looked up, so `foo/` links to `foo/index.md` (a page) or to a verbatim
+// `foo/index.html` the same way `foo/index.html` would.
+function findLinkTarget(absSrc, pageOutBySrc, verbatimOutBySrc) {
+  if (pageOutBySrc.has(absSrc)) {
+    return { targetPageOut: pageOutBySrc.get(absSrc) };
+  }
+  if (verbatimOutBySrc.has(absSrc)) {
+    return { targetVerbatimOut: verbatimOutBySrc.get(absSrc) };
+  }
+  for (const name of PAGE_INDEX_NAMES) {
+    const candidate = path.posix.join(absSrc, name);
+    if (pageOutBySrc.has(candidate)) {
+      return { targetPageOut: pageOutBySrc.get(candidate) };
+    }
+  }
+  const verbatimIndex = path.posix.join(absSrc, 'index.html');
+  if (verbatimOutBySrc.has(verbatimIndex)) {
+    return { targetVerbatimOut: verbatimOutBySrc.get(verbatimIndex) };
+  }
+  return {};
+}
+
 export function createPlainAssetRegistry({
   fs,
   topDir,
@@ -171,9 +199,10 @@ export function createPlainAssetRegistry({
   }
 
   // `verbatimOutBySrc` maps a verbatim-copied source file (see verbatim.js)
-  // to its output path; a reference to one resolves to that file's URL, with
-  // the literal filename kept (no index.html → directory cleanup — the user
-  // linked to a specific file).
+  // to its output path; a reference to one resolves to that file's URL. The
+  // literal filename is kept, except that an `index.html` target gets the
+  // same directory-URL cleanup as a page (`legacy/index.html` → `legacy/`),
+  // so `href="legacy/"` and `href="legacy/index.html"` come out identical.
   async function processAll(pages, { verbatimOutBySrc = new Map() } = {}) {
     if (calls.length === 0) {
       return function substitute(html) {
@@ -209,8 +238,7 @@ export function createPlainAssetRegistry({
           pages: new Set(),
           explicitPlacement: undefined,
           ext: (EXT_RE.exec(call.absSrc)?.[1] ?? 'bin').toLowerCase(),
-          targetPageOut: pageOutBySrc.get(call.absSrc),
-          targetVerbatimOut: verbatimOutBySrc.get(call.absSrc),
+          ...findLinkTarget(call.absSrc, pageOutBySrc, verbatimOutBySrc),
         };
         bySrc.set(call.absSrc, entry);
       }
@@ -245,10 +273,15 @@ export function createPlainAssetRegistry({
           try {
             entry.bytes = await fs.promises.readFile(entry.absSrc);
           } catch (e) {
+            const importer = displayPath(entry.calls[0].importerAbsPath);
             if (e.code === 'ENOENT') {
-              const importer = displayPath(entry.calls[0].importerAbsPath);
               throw new Error(
                 `Asset not found at ${entry.absSrc} (referenced from "${importer}").`,
+              );
+            }
+            if (e.code === 'EISDIR') {
+              throw new Error(
+                `"${entry.calls[0].srcDisplay}" is a directory with no index page (${entry.absSrc}, referenced from "${importer}"). Link to a page or file inside it, or add an index.html/index.md there.`,
               );
             }
             throw e;
@@ -304,14 +337,13 @@ export function createPlainAssetRegistry({
       // output URL, relative to the linking page's own directory.
       if (isLinkTarget(entry)) {
         const targetOut = entry.targetPageOut ?? entry.targetVerbatimOut;
-        const clean = entry.targetPageOut !== undefined ? cleanPageUrl : (r) => r;
         for (const call of entry.calls) {
           tokenToResolver.set(call.token, (outPath) => {
             const rel = path.posix.relative(
               path.posix.dirname(outPath),
               targetOut,
             );
-            return clean(rel) + call.suffix;
+            return cleanPageUrl(rel) + call.suffix;
           });
         }
         continue;

@@ -78,7 +78,8 @@ test('links from pages to verbatim files resolve to page-relative URLs with the 
   await build({ inputDir: '/in', outputDir: '/out', topDir: '/', fs });
   const root = await fs.promises.readFile('/out/index.html', 'utf8');
   assert.match(root, /<a href="legacy\/feed\.xml">feed<\/a>/);
-  assert.match(root, /<a href="legacy\/index\.html#top">home<\/a>/);
+  // A verbatim index.html gets the same directory-URL cleanup as a page.
+  assert.match(root, /<a href="legacy\/#top">home<\/a>/);
   assert.match(root, /<img src="legacy\/logo\.png" alt="l">/);
   const intro = await fs.promises.readFile('/out/docs/intro/index.html', 'utf8');
   assert.match(intro, /<a href="\.\.\/\.\.\/legacy\/feed\.xml\?v=2">feed<\/a>/);
@@ -89,6 +90,45 @@ test('links from pages to verbatim files resolve to page-relative URLs with the 
   assert.match(hand, /<link rel="stylesheet" href="\.\.\/legacy\/site\.css">/);
   assert.equal(await exists(fs, '/out/_assets'), false);
   assert.equal(await fs.promises.readFile('/out/legacy/site.css', 'utf8'), 'body{color:red}');
+});
+
+test('a directory link resolves to the index page or verbatim index.html beneath it', async () => {
+  const fs = makeFs({
+    '/in/index.html':
+      '<html><body><a href="legacy/">v</a> <a href="legacy">vbare</a> <a href="docs/#x">d</a> <a href="./hand/">h</a></body></html>\n',
+    '/in/docs/index.md': '[up](../) [legacy](/in/legacy/) [hand](../hand)\n',
+    '/in/hand/index.html': '<html><body>hand</body></html>\n',
+    '/in/legacy/.xtatic-verbatim': '',
+    '/in/legacy/index.html': '<html></html>',
+    '/in/legacy/sub/index.html': '<html>sub</html>',
+    '/in/other.md': '[sub](./legacy/sub/)\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', topDir: '/', fs });
+  const root = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(root, /<a href="legacy\/">v<\/a>/);
+  assert.match(root, /<a href="legacy\/">vbare<\/a>/);
+  assert.match(root, /<a href="docs\/#x">d<\/a>/);
+  assert.match(root, /<a href="hand\/">h<\/a>/);
+  const docs = await fs.promises.readFile('/out/docs/index.html', 'utf8');
+  assert.match(docs, /<a href="\.\.\/">up<\/a>/);
+  assert.match(docs, /<a href="\.\.\/legacy\/">legacy<\/a>/);
+  assert.match(docs, /<a href="\.\.\/hand\/">hand<\/a>/);
+  const other = await fs.promises.readFile('/out/other/index.html', 'utf8');
+  assert.match(other, /<a href="\.\.\/legacy\/sub\/">sub<\/a>/);
+  // Nothing was copied as an asset.
+  assert.equal(await exists(fs, '/out/_assets'), false);
+});
+
+test('a directory link with no index page beneath it is a clear error', async () => {
+  const fs = makeFs({
+    '/in/index.md': '[bad](./legacy/nothing/)\n',
+    '/in/legacy/.xtatic-verbatim': '',
+    '/in/legacy/nothing/feed.xml': '<feed/>',
+  });
+  await assert.rejects(
+    build({ inputDir: '/in', outputDir: '/out', topDir: '/', fs }),
+    /"\.\/legacy\/nothing\/" is a directory with no index page/,
+  );
 });
 
 test('a page and a verbatim file writing to the same output path is an error', async () => {
