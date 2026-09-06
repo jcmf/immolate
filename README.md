@@ -215,11 +215,40 @@ Rules:
 - **Not pages.** Verbatim files don't join the [module tree](#the-module-tree) (no `childPages` entry, `title`, `date`, or `url`), and the directory produces no node of its own. A `.md`/`.html` under the marker is just a file. `{placeholder}` filenames are literal, not generators.
 - **Link to them by source path**, like pages: `<a href="./legacy/feed.xml">`, `<img src="/pages/legacy/logo.png">`, `<link rel="stylesheet" href="./legacy/site.css">` — any [whitelisted attribute](#asset-references) whose target resolves into a verbatim directory becomes a page-relative URL to the copied file. The literal filename is kept, except that an `index.html` is linked as its directory (`legacy/index.html` → `legacy/`, exactly like a page), and `<a href="./legacy/">` resolves to that same `index.html`. The file isn't copied a second time into `_assets/`. Links *inside* verbatim files are not rewritten, so they must already be correct for the output layout — which they are for relative links within the subtree, since positions are mirrored.
 - **Collisions are errors.** A verbatim file and a page resolving to the same output path (`pages/about.md` alongside a verbatim `pages/about/index.html`) fails the build, as does a verbatim file landing under the [assets directory](#install--run).
-- **Lint skips the subtree**, so pre-generated `.js`/`.md` in there won't be linted as sources.
+- **Lint skips the subtree** (or, for a [pattern marker](#verbatim-files-by-pattern), the matched files), so pre-generated `.js`/`.md` in there won't be linted as sources.
 - **Explicit processing still works.** `import`, `readfile`, and `<Image>` treat a file in a verbatim directory like any other source file; the marker only governs what the walker does with the file on its own.
-- Nested markers are harmless. A marker at the `INPUT_DIR` root makes the whole tree verbatim and fails with "No page sources found".
+- Nested markers are harmless. An empty marker at the `INPUT_DIR` root makes the whole tree verbatim and fails with "No page sources found".
 
 Output is written through the same incremental writer as everything else: unchanged files keep their timestamps and files removed from the source (or a whole directory whose marker is removed) are pruned from the output.
+
+### Verbatim files by pattern
+
+A marker that isn't empty lists **patterns**, one per line, and only what they match is verbatim — the rest of the directory is walked for pages as usual. This is how you keep a `favicon.ico`, `robots.txt`, or a background image at its literal root-level path next to your pages:
+
+```
+pages/
+  .xtatic-verbatim      ← contains:  favicon.ico
+                                     robots.txt
+                                     *.gif
+                                     legacy/
+  index.html            → page, as usual (OUTPUT_DIR/index.html)
+  favicon.ico           → OUTPUT_DIR/favicon.ico
+  robots.txt            → OUTPUT_DIR/robots.txt
+  bg.gif                → OUTPUT_DIR/bg.gif
+  about/hero.gif        → OUTPUT_DIR/about/hero.gif
+  legacy/…              → whole subtree copied as-is
+```
+
+Pattern syntax is a gitignore subset:
+
+- Blank lines and `#` comments are ignored. A marker containing only those is an empty marker (everything verbatim).
+- `*` matches within one path segment, `?` one character, `**` any number of segments.
+- A pattern with no `/` matches a **basename at any depth** below the marker's directory (`*.gif` catches `about/hero.gif` too). A pattern containing a `/` is **anchored** to the marker's directory (`/robots.txt` or `docs/**/*.pdf`); a leading `/` is optional.
+- A trailing `/` matches directories only. A matched directory is copied whole, exactly as if it had an empty marker of its own.
+- A pattern marker's rules apply to every subdirectory beneath it; a subdirectory may add its own marker (patterns accumulate; an empty one makes that subtree fully verbatim).
+- No negation (`!`).
+
+A matched `.md`/`.mdx`/`.html` is copied as a file, not built as a page. Everything else about verbatim files — no tree entry, [link resolution](#linking-between-pages) by source path, collision checks, lint skipping — is the same whether they were matched by pattern or by an empty marker. Note that a page's own reference to a matched file (`<link rel="icon" href="favicon.ico">`, `url(bg.gif)` in an inline `<style>`) links to the literal copy rather than emitting a hashed `_assets/` file.
 
 ## Layouts
 

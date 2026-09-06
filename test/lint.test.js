@@ -341,6 +341,23 @@ test('lint inspects generator files: a broken import is caught', () => {
   assert.match(r.stderr, /missing\.mdx/);
 });
 
+test('lint skips only the files a pattern .xtatic-verbatim marker matches', () => {
+  const top = setupTopDir('verbatim-pattern-skip', {
+    'pages/index.mdx': '# Hi\n',
+    'pages/.xtatic-verbatim': 'vendor/\n*.min.js\n',
+    // Both would fail no-undef / no-unresolved if linted as sources.
+    'pages/vendor/app.js': "import x from './missing.js';\nundefinedThing(x);\n",
+    'pages/deep/lib.min.js': 'undefinedThing();\n',
+    // Not matched by any pattern, so still a source — and broken.
+    'pages/deep/real.js': 'undefinedThing();\n',
+  });
+  const r = runCli(top);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /deep\/real\.js/);
+  assert.doesNotMatch(r.stderr, /vendor\/app\.js/);
+  assert.doesNotMatch(r.stderr, /lib\.min\.js/);
+});
+
 test('lint skips directories marked .xtatic-verbatim', () => {
   const top = setupTopDir('verbatim-skip', {
     'pages/index.mdx': '# Hi\n',

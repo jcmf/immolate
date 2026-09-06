@@ -13,8 +13,11 @@ import { createOutputWriter } from './output.js';
 import { createRegistry } from './registry.js';
 import { wrapZipFs } from './zipfs.js';
 import {
+  VERBATIM_MARKER,
   collectVerbatimFiles,
   hasVerbatimMarker,
+  isVerbatimByPatterns,
+  parseVerbatimMarker,
   verbatimOutPath,
   writeVerbatimFiles,
 } from './verbatim.js';
@@ -28,30 +31,51 @@ const HTML_EXT_RE = /\.html$/;
 const LEFTOVER_TOKEN_RE =
   /__XTATIC_(?:IMG|STYLE|FONT|ASSET)_[a-f0-9]+__|__XTATIC_EMIT_[a-f0-9]+\.[a-z0-9]+__/;
 
-// Walk inputDir for page sources. A directory carrying a `.xtatic-verbatim`
-// marker is not descended for pages: every file under it is collected into
-// `verbatim` instead, to be copied to the output as-is (see src/verbatim.js).
+// Walk inputDir for page sources. A directory carrying an empty
+// `.xtatic-verbatim` marker is not descended for pages: every file under it is
+// collected into `verbatim` instead, to be copied to the output as-is. A
+// marker with pattern lines only diverts the matching files/directories and
+// the walk otherwise continues; its patterns stay active for the whole
+// subtree beneath it (see src/verbatim.js).
 async function walkPages(fs, root) {
   const results = [];
   const verbatim = [];
-  async function recurse(absDir, relDir) {
+  async function recurse(absDir, relDir, active) {
     const entries = await fs.promises.readdir(absDir, { withFileTypes: true });
     entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     if (hasVerbatimMarker(entries)) {
-      verbatim.push(...(await collectVerbatimFiles(fs, absDir, relDir)));
-      return;
+      const marker = parseVerbatimMarker(
+        await fs.promises.readFile(`${absDir}/${VERBATIM_MARKER}`, 'utf8'),
+      );
+      if (marker.all) {
+        verbatim.push(...(await collectVerbatimFiles(fs, absDir, relDir)));
+        return;
+      }
+      active = [...active, { baseRel: relDir, rules: marker.rules }];
     }
     for (const ent of entries) {
+      if (ent.name === VERBATIM_MARKER) continue;
       const childAbs = `${absDir}/${ent.name}`;
       const childRel = relDir === '' ? ent.name : `${relDir}/${ent.name}`;
-      if (ent.isDirectory()) {
-        await recurse(childAbs, childRel);
+      const isDir = ent.isDirectory();
+      if (
+        active.length > 0 &&
+        (isDir || ent.isFile()) &&
+        isVerbatimByPatterns(active, childRel, isDir)
+      ) {
+        if (isDir) {
+          verbatim.push(...(await collectVerbatimFiles(fs, childAbs, childRel)));
+        } else {
+          verbatim.push({ absPath: childAbs, relPath: childRel });
+        }
+      } else if (isDir) {
+        await recurse(childAbs, childRel, active);
       } else if (ent.isFile() && PAGE_EXT_RE.test(ent.name)) {
         results.push({ absPath: childAbs, relPath: childRel });
       }
     }
   }
-  await recurse(root, '');
+  await recurse(root, '', []);
   return { pages: results, verbatim };
 }
 

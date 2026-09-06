@@ -201,3 +201,84 @@ test('verbatim output is pruned and refreshed across rebuilds', async () => {
   await build({ inputDir: '/in', outputDir: '/out', fs });
   assert.equal(await exists(fs, '/out/v/a.txt'), false);
 });
+
+test('a marker with pattern lines makes only the matching files verbatim', async () => {
+  const fs = makeFs({
+    '/in/.xtatic-verbatim': '# root-level files the browser fetches by name\nfavicon.ico\n*.gif\n/robots.txt\nnotes.md\n',
+    '/in/index.md': '# root\n',
+    '/in/about.md': '# about\n',
+    '/in/notes.md': '# copied literally\n',
+    '/in/favicon.ico': 'ico',
+    '/in/bg.gif': 'gif',
+    '/in/robots.txt': 'User-agent: *\n',
+    '/in/docs/robots.txt': 'nested, not anchored\n',
+    '/in/docs/deep/anim.gif': 'gif2',
+    '/in/docs/index.md': '# docs\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  // Pages in a pattern-marked directory are still pages.
+  assert.match(await fs.promises.readFile('/out/index.html', 'utf8'), /root/);
+  assert.match(await fs.promises.readFile('/out/about/index.html', 'utf8'), /about/);
+  assert.match(await fs.promises.readFile('/out/docs/index.html', 'utf8'), /docs/);
+  // Matching files land at their literal positions, unprocessed.
+  assert.equal(await fs.promises.readFile('/out/favicon.ico', 'utf8'), 'ico');
+  assert.equal(await fs.promises.readFile('/out/bg.gif', 'utf8'), 'gif');
+  assert.equal(await fs.promises.readFile('/out/robots.txt', 'utf8'), 'User-agent: *\n');
+  assert.equal(await fs.promises.readFile('/out/notes.md', 'utf8'), '# copied literally\n');
+  assert.equal(await exists(fs, '/out/notes/index.html'), false);
+  // Unanchored patterns apply at any depth below the marker; anchored ones
+  // only at the marker's own directory.
+  assert.equal(await fs.promises.readFile('/out/docs/deep/anim.gif', 'utf8'), 'gif2');
+  assert.equal(await exists(fs, '/out/docs/robots.txt'), false);
+  assert.equal(await exists(fs, '/out/.xtatic-verbatim'), false);
+});
+
+test('a directory pattern copies the whole subtree; a nested empty marker still means everything', async () => {
+  const fs = makeFs({
+    '/in/.xtatic-verbatim': 'legacy/\n',
+    '/in/index.md': '# root\n',
+    '/in/legacy/page.md': '# not a page\n',
+    '/in/legacy/sub/x.txt': 'x',
+    '/in/other/.xtatic-verbatim': '\n\n# nothing but comments\n',
+    '/in/other/y.md': '# also not a page\n',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  assert.equal(await fs.promises.readFile('/out/legacy/page.md', 'utf8'), '# not a page\n');
+  assert.equal(await fs.promises.readFile('/out/legacy/sub/x.txt', 'utf8'), 'x');
+  assert.equal(await fs.promises.readFile('/out/other/y.md', 'utf8'), '# also not a page\n');
+  assert.equal(await exists(fs, '/out/legacy/page/index.html'), false);
+  assert.equal(await exists(fs, '/out/other/y/index.html'), false);
+});
+
+test('an html page can reference pattern-verbatim files from inline CSS and <link rel=icon>', async () => {
+  // The motivating case: a hand-written index.html with a background image in
+  // an inline stylesheet, plus a favicon the browser fetches at /favicon.ico
+  // without any reference in the document.
+  const fs = makeFs({
+    '/in/.xtatic-verbatim': 'favicon.ico\nbg.gif\n',
+    '/in/index.html':
+      '<!doctype html>\n<html><head><link rel="icon" href="favicon.ico">\n<style>body{background:url(bg.gif)}</style></head><body>hi</body></html>\n',
+    '/in/favicon.ico': 'ico',
+    '/in/bg.gif': 'gif',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/index.html', 'utf8');
+  assert.match(html, /<link rel="icon" href="favicon\.ico">/);
+  assert.match(html, /body\{background:url\("bg\.gif"\)\}/);
+  assert.equal(await fs.promises.readFile('/out/favicon.ico', 'utf8'), 'ico');
+  assert.equal(await fs.promises.readFile('/out/bg.gif', 'utf8'), 'gif');
+  assert.equal(await exists(fs, '/out/_assets'), false);
+});
+
+test('a pattern-verbatim file colliding with a page output path is an error', async () => {
+  const fs = makeFs({
+    '/in/.xtatic-verbatim': 'about/index.html\n',
+    '/in/index.md': '# root\n',
+    '/in/about.md': '# about\n',
+    '/in/about/index.html': '<html></html>\n',
+  });
+  await assert.rejects(
+    build({ inputDir: '/in', outputDir: '/out', fs }),
+    /Two sources write to the same output path "\/out\/about\/index\.html": verbatim file "about\/index\.html" and "about"/,
+  );
+});

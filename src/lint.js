@@ -7,7 +7,11 @@ import { flat as mdxFlat } from 'eslint-plugin-mdx';
 import globals from 'globals';
 import { BUILTIN_SPECS } from './builtins-registry.js';
 import { renderCodeFrame } from './code-frame.js';
-import { VERBATIM_MARKER } from './verbatim.js';
+import {
+  VERBATIM_MARKER,
+  isVerbatimByPatterns,
+  parseVerbatimMarker,
+} from './verbatim.js';
 import xtaticBuiltinImports from './eslint-rules/xtatic-builtin-imports.js';
 
 const SOURCE_EXT_RE = /\.(mdx?|jsx?)$/i;
@@ -87,27 +91,46 @@ export function makeConfig(topDir) {
 function walkLintTargets(topDir, outputDir) {
   const results = [];
   const outAbs = path.resolve(outputDir);
-  function recurse(dir) {
+  const topAbs = path.resolve(topDir);
+  // Verbatim files are copied as-is; a .js/.md/… among them isn't a source.
+  // Same marker semantics as index.js walkPages: an empty marker skips the
+  // whole directory, a pattern marker skips just what it matches (and its
+  // patterns apply to the subtree). `active` paths are relative to topDir.
+  function recurse(dir, active) {
     let entries;
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
     } catch {
       return;
     }
+    const markerPath = path.join(dir, VERBATIM_MARKER);
+    if (fs.existsSync(markerPath)) {
+      const marker = parseVerbatimMarker(fs.readFileSync(markerPath, 'utf8'));
+      if (marker.all) return;
+      active = [
+        ...active,
+        { baseRel: path.relative(topAbs, dir), rules: marker.rules },
+      ];
+    }
     for (const ent of entries) {
       const abs = path.join(dir, ent.name);
       if (abs === outAbs) continue;
       if (ent.name === 'node_modules' || ent.name.startsWith('.')) continue;
-      if (ent.isDirectory()) {
-        // Verbatim directories are copied as-is; their .js/.md/… aren't sources.
-        if (fs.existsSync(path.join(abs, VERBATIM_MARKER))) continue;
-        recurse(abs);
+      const isDir = ent.isDirectory();
+      if (
+        active.length > 0 &&
+        isVerbatimByPatterns(active, path.relative(topAbs, abs), isDir)
+      ) {
+        continue;
+      }
+      if (isDir) {
+        recurse(abs, active);
       } else if (ent.isFile() && SOURCE_EXT_RE.test(ent.name)) {
         results.push(abs);
       }
     }
   }
-  recurse(path.resolve(topDir));
+  recurse(topAbs, []);
   return results;
 }
 
