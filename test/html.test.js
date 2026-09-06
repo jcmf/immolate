@@ -261,3 +261,75 @@ test('processHtml processes assets inside <template> content', () => {
   });
   assert.deepEqual(seen, ['./t.png']);
 });
+
+test('url() inside an inline <style> block in .html goes through the asset pipeline', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# root\n',
+    '/in/page.html':
+      '<!doctype html>\r\n<html><head>\r\n<style>\r\nbody { background: url(bg.gif) no-repeat; }\r\n.big { background-image: url("./big.png"); }\r\n.ext { background: url(https://x.example/a.png), url(data:image/gif;base64,R0lG) }\r\n</style></head><body></body></html>\r\n',
+  });
+  await fs.promises.writeFile('/in/bg.gif', bytes(10));
+  await fs.promises.writeFile('/in/big.png', bytes(8192));
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/page/index.html', 'utf8');
+  // Small → data: URL, always double-quoted; large → page-relative shared asset.
+  assert.match(
+    html,
+    /body \{ background: url\("data:image\/gif;base64,[A-Za-z0-9+/=]+"\) no-repeat; \}/,
+  );
+  assert.match(html, /\.big \{ background-image: url\("\.\.\/_assets\/[a-f0-9]+\.png"\); \}/);
+  // Passthrough URLs and the surrounding bytes (CRLF included) are untouched.
+  assert.match(
+    html,
+    /\.ext \{ background: url\(https:\/\/x\.example\/a\.png\), url\(data:image\/gif;base64,R0lG\) \}\r\n<\/style>/,
+  );
+  assert.match(html, /^<!doctype html>\r\n<html><head>\r\n<style>\r\nbody/);
+});
+
+test('url() inside a style="" attribute in .html is rewritten and re-escaped', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# root\n',
+    '/in/page.html':
+      "<html><body><div style='background:url(bg.gif) &amp; color:red' data-xtatic-placement=\"shared\">x</div><p style=\"color:blue\">y</p></body></html>\n",
+  });
+  await fs.promises.writeFile('/in/bg.gif', bytes(10));
+  await build({ inputDir: '/in', outputDir: '/out', fs });
+  const html = await fs.promises.readFile('/out/page/index.html', 'utf8');
+  // Forced shared despite being under the inline threshold; the attribute is
+  // re-emitted double-quoted with entities re-escaped and the placement attr
+  // removed. A style attr with no url() is left byte-for-byte.
+  assert.match(
+    html,
+    /<div style="background:url\(&quot;\.\.\/_assets\/[a-f0-9]+\.gif&quot;\) &amp; color:red">x<\/div><p style="color:blue">y<\/p>/,
+  );
+  assert.equal(await fs.promises.readdir('/out/_assets').then((l) => l.length), 1);
+});
+
+test('a missing url() target in an inline <style> reports the CSS line', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# root\n',
+    '/in/page.html':
+      '<html><head><style>\nbody {}\n  .x { background: url(./nope.gif) }\n</style></head></html>\n',
+  });
+  await assert.rejects(
+    build({ inputDir: '/in', outputDir: '/out', fs }),
+    (e) => {
+      assert.match(e.message, /Asset not found at \/in\/nope\.gif/);
+      assert.match(e.message, /in <style> at page\.html:3:20/);
+      return true;
+    },
+  );
+});
+
+test('an inline <style> url() can point at a verbatim file', async () => {
+  const fs = makeFs({
+    '/in/index.md': '# root\n',
+    '/in/page.html':
+      '<html><head><style>body{background:url(/in/static/bg.gif)}</style></head></html>\n',
+    '/in/static/.xtatic-verbatim': '',
+    '/in/static/bg.gif': 'gif',
+  });
+  await build({ inputDir: '/in', outputDir: '/out', topDir: '/', fs });
+  const html = await fs.promises.readFile('/out/page/index.html', 'utf8');
+  assert.match(html, /body\{background:url\("\.\.\/static\/bg\.gif"\)\}/);
+});

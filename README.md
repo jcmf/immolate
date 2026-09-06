@@ -184,7 +184,9 @@ Identifiers shadowed by parameters or local declarations resolve normally; it's 
 
 A `.html` file in the input tree is a page too — handy for dropping in hand-written or legacy pages. It maps to the same output location a `.md` at that path would (`foo/bar.html` → `foo/bar/index.html`), participates in the module tree (`name`, `title`, `date`, `childPages`, `url`), and its [asset references](#asset-references) go through the same pipeline as tags rendered from markdown: `<img src>`, `<link rel="stylesheet" href>`, `<script src>`, `<a href="./other.md">` page links, `data-xtatic-placement`, and the rest of the whitelist all behave identically. Path resolution is the same, too — a leading `/` roots at `TOP_DIR`, everything else resolves against the `.html` file's own directory.
 
-Everything *outside* the rewritten attribute values ships byte-for-byte: comments, doctype, whitespace, and formatting are preserved (a rewritten attribute is re-emitted double-quoted).
+Inline CSS is covered as well: a `url(...)` inside a `<style>` block or a `style=""` attribute is resolved and copied/inlined like any other reference (`body { background: url(bg.gif) }` becomes a `data:` URL, a hashed `_assets/` file, or a link to a [verbatim](#verbatim-directories) copy, by the usual rules). A `data-xtatic-placement` on the `<style>` element or the styled element applies to every `url()` it contains. The bare-string `@import "x.css"` form is not rewritten — use `@import url(...)`.
+
+Everything *outside* the rewritten references ships byte-for-byte: comments, doctype, whitespace, and formatting are preserved (a rewritten attribute is re-emitted double-quoted; a rewritten `url()` is re-emitted as `url("…")`).
 
 Differences from `.md`/`.mdx`:
 
@@ -306,6 +308,7 @@ The whitelisted (tag, attribute) pairs are:
 - `img.src`, `script.src`, `source.src`, `audio.src`, `video.src`, `video.poster`
 - `link.href` — only when `rel` is `stylesheet`, `icon`, `shortcut`, `apple-touch-icon`(`-precomposed`), `mask-icon`, `preload`, `prefetch`, `modulepreload`, or `manifest`. Other rels (`canonical`, `alternate`, …) are left untouched since their hrefs aren't file references.
 - `a.href`, `area.href` — see [Linking between pages](#linking-between-pages) below.
+- In [`.html` pages](#html-pages) only: every `url(...)` inside a `<style>` element or a `style=""` attribute. (In `.md`/`.mdx`, use [`<Style>`](#stylesheets) or a `<link rel="stylesheet">` to a `.css` file; `url()` inside a literal `<style>` block there isn't rewritten.)
 
 Values that aren't files — anything with a URL scheme (`data:`, `http(s):`, `mailto:`, `tel:`, `javascript:`, …), `//`, `#`, and empty strings — pass through verbatim, so a `<link rel="stylesheet" href="https://…">` to a CDN is unchanged. Dynamic values like `<img src={x}>` are wrapped at runtime, so the same passthrough applies after evaluation.
 

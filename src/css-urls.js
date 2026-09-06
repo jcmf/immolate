@@ -21,6 +21,18 @@ function unquote(inner) {
   return trimmed;
 }
 
+// Every `url(...)` token in `css` as `{start, end, url}`: the token's span in
+// `css` and its unquoted, trimmed value. Shared with html.js, which runs the
+// same tokenizer over inline <style> blocks and style="" attributes so the two
+// can't disagree about what a url() reference looks like.
+export function findCssUrls(css) {
+  return [...css.matchAll(URL_RE)].map((m) => ({
+    start: m.index,
+    end: m.index + m[0].length,
+    url: unquote(m[1]),
+  }));
+}
+
 // Rewrites url(...) tokens in `css` so each non-passthrough reference is
 // resolved (against `sourceAbsPath`'s directory, or against `topDir` if it
 // starts with /), read from `fs`, and emitted via `assetRegistry.emit` to a
@@ -35,12 +47,11 @@ export async function rewriteCssUrls({
   notFoundMessage,
 }) {
   const sourceDir = path.posix.dirname(sourceAbsPath);
-  const matches = [...css.matchAll(URL_RE)];
+  const matches = findCssUrls(css);
   if (matches.length === 0) return css;
 
   const replacements = await Promise.all(
-    matches.map(async (m) => {
-      const url = unquote(m[1]);
+    matches.map(async ({ url }) => {
       if (isPassthroughUrl(url)) return null;
       const absRef = url.startsWith('/')
         ? path.posix.join(topDir, url)
@@ -64,13 +75,13 @@ export async function rewriteCssUrls({
   for (let i = 0; i < matches.length; i++) {
     const m = matches[i];
     const r = replacements[i];
-    out += css.slice(last, m.index);
+    out += css.slice(last, m.start);
     if (r == null) {
-      out += m[0];
+      out += css.slice(m.start, m.end);
     } else {
       out += `url("${r}")`;
     }
-    last = m.index + m[0].length;
+    last = m.end;
   }
   out += css.slice(last);
   return out;
